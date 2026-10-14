@@ -3,6 +3,13 @@
 import { useState } from "react";
 import { MenuIcon, CloseIcon } from "./Icons";
 
+const links = [
+  { href: "#deals", label: "Deals" },
+  { href: "#how", label: "How it works" },
+  { href: "#pricing", label: "Pricing" },
+  { href: "#faq", label: "FAQ" },
+];
+
 export function MobileNav() {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -14,7 +21,7 @@ export function MobileNav() {
       {/* Hamburger Button */}
       <button
         onClick={toggleMenu}
-        className="p-2 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+        className="p-2 text-white/90 hover:text-sun-400 transition-colors"
         aria-label={isOpen ? "Close menu" : "Open menu"}
         aria-expanded={isOpen}
         aria-controls="mobile-menu"
@@ -34,41 +41,37 @@ export function MobileNav() {
       {/* Mobile Menu Panel */}
       <div
         id="mobile-menu"
-        className={`fixed top-16 right-0 z-50 w-64 h-[calc(100vh-4rem)] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 transform transition-transform duration-300 ease-in-out ${
+        className={`fixed top-16 right-0 z-50 w-64 h-[calc(100vh-4rem)] bg-white border-l border-ink-100 transform transition-transform duration-300 ease-in-out ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
         role="dialog"
         aria-modal="true"
         aria-label="Mobile navigation menu"
       >
-        <nav className="flex flex-col p-6 space-y-4">
+        <nav className="flex flex-col p-6 space-y-2">
+          {links.map((l) => (
+            <a
+              key={l.href}
+              href={l.href}
+              onClick={closeMenu}
+              className="text-base font-semibold text-ink-700 hover:text-sun-600 transition-colors py-2"
+            >
+              {l.label}
+            </a>
+          ))}
           <a
-            href="#services"
+            href="/login"
             onClick={closeMenu}
-            className="text-base font-medium text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors py-2"
+            className="text-base font-semibold text-ink-700 hover:text-sun-600 transition-colors py-2"
           >
-            Services
+            Log in
           </a>
           <a
-            href="#about"
+            href="#pricing"
             onClick={closeMenu}
-            className="text-base font-medium text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors py-2"
+            className="bg-sun-500 hover:bg-sun-600 text-ink-900 px-4 py-3 rounded-full text-base font-bold transition-colors text-center mt-4"
           >
-            About
-          </a>
-          <a
-            href="#work"
-            onClick={closeMenu}
-            className="text-base font-medium text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors py-2"
-          >
-            Work
-          </a>
-          <a
-            href="#contact"
-            onClick={closeMenu}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg text-base font-medium transition-colors text-center mt-4"
-          >
-            Contact
+            Sign up free
           </a>
         </nav>
       </div>
