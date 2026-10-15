@@ -67,7 +67,7 @@ export function MobileNav() {
             Log in
           </a>
           <a
-            href="#pricing"
+            href="/signup"
             onClick={closeMenu}
             className="bg-sun-500 hover:bg-sun-600 text-ink-900 px-4 py-3 rounded-full text-base font-bold transition-colors text-center mt-4"
           >

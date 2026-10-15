@@ -31,7 +31,7 @@ export default function LoginPage() {
 
         <p className="mt-6 text-center text-sm text-white/70">
           New here?{" "}
-          <Link href="/#pricing" className="font-bold text-sun-400 hover:text-sun-300 underline-offset-2 hover:underline">
+          <Link href="/signup" className="font-bold text-sun-400 hover:text-sun-300 underline-offset-2 hover:underline">
             Sign up free
           </Link>
         </p>

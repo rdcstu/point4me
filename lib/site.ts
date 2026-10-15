@@ -50,6 +50,7 @@ export const steps = [
 
 export const plans = [
   {
+    id: "explorer",
     name: "Explorer",
     price: "Free",
     period: "",
@@ -59,6 +60,7 @@ export const plans = [
     highlight: false,
   },
   {
+    id: "member",
     name: "Member",
     price: "$12",
     period: "/month",
@@ -68,6 +70,7 @@ export const plans = [
     highlight: true,
   },
   {
+    id: "concierge",
     name: "Concierge",
     price: "$150",
     period: "/trip",
@@ -90,4 +93,71 @@ export const faqs = [
   { q: "Do you book the flight for me?", a: "Search and booking instructions are self-serve. If you'd rather hand it off, the Concierge plan does the legwork with you." },
   { q: "How is a deal rated?", a: "We compare the cash fare to the points plus taxes and calculate the cents you get per point. Higher value earns a better rating." },
   { q: "Is award availability live?", a: "This demo uses sample data. A production version would query program availability and refresh results on each search." },
+];
+
+// ============================================================
+// SIGN-UP PAGE — plans and sample member savings
+// Prompt: "Change the Member plan price to $[X]"
+// ============================================================
+
+export type SignupPlan = {
+  id: string;
+  name: string;
+  badge?: string;
+  blurb: string;
+  monthly: number; // price per month when billed monthly (0 = free)
+  annual: number; // price per year when billed annually (0 = free)
+  includesLabel?: string;
+  features: string[];
+  cta: string;
+};
+
+export const signupPlans: SignupPlan[] = [
+  {
+    id: "explorer",
+    name: "Explorer",
+    blurb: "Not ready to commit? See where your points can take you.",
+    monthly: 0,
+    annual: 0,
+    features: ["Search up to 60 days out", "Curated weekly deals email", "Points value calculator", "Manual points tracking"],
+    cta: "Start for free",
+  },
+  {
+    id: "member",
+    name: "Member",
+    blurb: "Everything you need to book award trips yourself.",
+    monthly: 12,
+    annual: 96,
+    includesLabel: "Everything in Explorer, plus:",
+    features: [
+      "Unlimited award searches up to 1 year out",
+      "Seat alerts on 3 saved routes",
+      "Filter by program, airline and stops",
+      "Wallet sync for your points balances",
+      "Step-by-step booking instructions",
+    ],
+    cta: "Get started",
+  },
+  {
+    id: "plus",
+    name: "Member Plus",
+    badge: "BEST DEAL",
+    blurb: "For frequent travelers who want expert help on call.",
+    monthly: 20,
+    annual: 180,
+    includesLabel: "Everything in Member, plus:",
+    features: [
+      "Free 30-minute points strategy session",
+      "Seat alerts on 10 saved routes",
+      "Multi-airport search",
+      "10% off Concierge bookings",
+    ],
+    cta: "Get started",
+  },
+];
+
+export const memberWins = [
+  { route: "SFO → Tokyo", cabin: "Business", cash: 4820, points: 75000, taxes: 86 },
+  { route: "LAX → Paris", cabin: "Business", cash: 3950, points: 60000, taxes: 112 },
+  { route: "SJC → London", cabin: "First", cash: 9200, points: 85000, taxes: 210 },
 ];

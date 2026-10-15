@@ -62,7 +62,7 @@ export default function Home() {
           </div>
           <div className="hidden md:flex items-center gap-3">
             <a href="/login" className="text-sm font-semibold text-white/90 hover:text-white px-3 py-2">Log in</a>
-            <a href="#pricing" className="rounded-full bg-sun-500 hover:bg-sun-600 px-5 py-2 text-sm font-bold text-ink-900 transition-colors">
+            <a href="/signup" className="rounded-full bg-sun-500 hover:bg-sun-600 px-5 py-2 text-sm font-bold text-ink-900 transition-colors">
               Sign up free
             </a>
           </div>
@@ -249,7 +249,7 @@ export default function Home() {
                     ))}
                   </ul>
                   <a
-                    href="#top"
+                    href={p.id === "concierge" ? "/signup#plans" : `/signup?plan=${p.id}`}
                     className={`rounded-full px-6 py-3 text-center font-bold transition-colors ${
                       p.highlight ? "bg-sun-500 hover:bg-sun-600 text-ink-900" : "bg-ink-900 hover:bg-ink-800 text-white"
                     }`}
