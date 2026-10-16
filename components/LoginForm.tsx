@@ -7,11 +7,11 @@ import { createClient, enabledProviders } from "@/lib/supabase/client";
 
 // ============================================================
 // LOGIN FORM — signs people in with Supabase Auth.
-// Methods: email + password, emailed one-time code, Google, Apple.
+// Methods: email + password, emailed one-time sign-in link, Google, Apple.
 // Google/Apple only go live once listed in NEXT_PUBLIC_AUTH_PROVIDERS.
 // ============================================================
 
-type Step = "choose" | "password" | "email-code" | "enter-code" | "provider";
+type Step = "choose" | "password" | "email-link" | "link-sent" | "provider";
 type Provider = "google" | "apple";
 
 const iconBox = "h-11 w-11 shrink-0 rounded-2xl flex items-center justify-center";
@@ -67,10 +67,9 @@ function ErrorNote({ message }: { message: string | null }) {
 // Turn Supabase error messages into friendlier copy
 function friendly(message: string) {
   const m = message.toLowerCase();
-  if (m.includes("invalid login credentials")) return "That email and password don't match. Try again or log in with a code.";
+  if (m.includes("invalid login credentials")) return "That email and password don't match. Try again or use an email link.";
   if (m.includes("email not confirmed")) return "Please confirm your email first. Check your inbox for the confirmation link.";
   if (m.includes("signups not allowed") || m.includes("user not found")) return "We couldn't find an account with that email. Sign up first?";
-  if (m.includes("token") || m.includes("otp")) return "That code is wrong or has expired. Request a new one.";
   if (m.includes("rate limit") || m.includes("too many")) return "Too many attempts. Please wait a few minutes and try again.";
   return message;
 }
@@ -95,7 +94,6 @@ export function LoginForm({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [code, setCode] = useState("");
   const [provider, setProvider] = useState<Provider>("google");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(initialError);
@@ -109,7 +107,6 @@ export function LoginForm({
 
   const reset = () => {
     setPassword("");
-    setCode("");
     setShowPassword(false);
     go("choose");
   };
@@ -132,7 +129,7 @@ export function LoginForm({
     signedIn();
   }
 
-  async function sendCode(e?: React.FormEvent) {
+  async function sendLink(e?: React.FormEvent) {
     e?.preventDefault();
     setBusy(true);
     setError(null);
@@ -142,19 +139,8 @@ export function LoginForm({
     });
     setBusy(false);
     if (error) return setError(friendly(error.message));
-    setCode("");
-    setStep("enter-code");
-    setNotice(`We sent a code to ${email}.`);
-  }
-
-  async function verifyCode(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    const { error } = await createClient().auth.verifyOtp({ email, token: code, type: "email" });
-    setBusy(false);
-    if (error) return setError(friendly(error.message));
-    signedIn();
+    setNotice(null);
+    setStep("link-sent");
   }
 
   async function startOAuth(p: Provider) {
@@ -181,11 +167,11 @@ export function LoginForm({
       onClick: () => go("password"),
     },
     {
-      label: "Email me a code",
-      desc: "We'll send a one-time code. No password needed.",
+      label: "Email me a link",
+      desc: "We'll email a one-time sign-in link. No password needed.",
       icon: <MailIcon />,
       iconClass: "bg-sun-500 text-ink-900",
-      onClick: () => go("email-code"),
+      onClick: () => go("email-link"),
     },
     {
       label: "Continue with Google",
@@ -261,8 +247,8 @@ export function LoginForm({
               <button
                 type="button"
                 onClick={() => {
-                  go("email-code");
-                  setNotice("Log in with a one-time code, then set a new password from your account page.");
+                  go("email-link");
+                  setNotice("We'll email you a sign-in link. Once you're in, set a new password from your account page.");
                 }}
                 className="text-sm font-semibold text-sun-600 hover:text-ink-900"
               >
@@ -298,60 +284,46 @@ export function LoginForm({
     );
   }
 
-  // ---------- Step: request a one-time code ----------
-  if (step === "email-code") {
+  // ---------- Step: request a sign-in link ----------
+  if (step === "email-link") {
     return (
-      <form onSubmit={sendCode} aria-label="Email me a sign-in code">
+      <form onSubmit={sendLink} aria-label="Email me a sign-in link">
         <BackButton onClick={reset} />
-        <h1 className="text-2xl font-extrabold font-display text-ink-900 mb-2">Email me a code</h1>
-        <p className="text-ink-500 mb-6">{notice ?? "Enter your email and we'll send a code to sign in."}</p>
+        <h1 className="text-2xl font-extrabold font-display text-ink-900 mb-2">Email me a sign-in link</h1>
+        <p className="text-ink-500 mb-6">{notice ?? "Enter your email and we'll send a one-time link that logs you in."}</p>
 
         <ErrorNote message={error} />
 
-        <label htmlFor="code-email" className={labelClass}>Email</label>
-        <input id="code-email" type="email" autoComplete="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className={inputClass} />
+        <label htmlFor="link-email" className={labelClass}>Email</label>
+        <input id="link-email" type="email" autoComplete="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className={inputClass} />
 
         <button type="submit" className={`${primaryBtn} mt-6`} disabled={!email || busy}>
-          {busy ? "Sending…" : "Send code"}
+          {busy ? "Sending…" : "Send link"}
         </button>
       </form>
     );
   }
 
-  // ---------- Step: enter the one-time code ----------
-  if (step === "enter-code") {
+  // ---------- Step: link sent ----------
+  if (step === "link-sent") {
     return (
-      <form onSubmit={verifyCode} aria-label="Enter sign-in code">
+      <div className="text-center" role="status">
         <BackButton onClick={reset} />
+        <span className={`${iconBox} mx-auto mb-4 bg-sun-500 text-ink-900`}>
+          <MailIcon />
+        </span>
         <h1 className="text-2xl font-extrabold font-display text-ink-900 mb-2">Check your email</h1>
-        <p className="text-ink-500 mb-6">
-          We sent a code to <span className="font-semibold text-ink-900">{email}</span>. You can also just click the link in that email.
+        <p className="text-ink-500 mb-2">
+          We sent a sign-in link to <span className="font-semibold text-ink-900">{email}</span>.
         </p>
+        <p className="text-sm text-ink-400 mb-6">Open it in this same browser. It may take a minute to arrive, so check spam too.</p>
 
         <ErrorNote message={error} />
 
-        <label htmlFor="otp" className={labelClass}>Code from the email</label>
-        <input
-          id="otp"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          pattern="[0-9]{6,10}"
-          maxLength={10}
-          required
-          autoFocus
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 10))}
-          placeholder="123456"
-          className={`${inputClass} text-center text-2xl font-bold tracking-[0.4em]`}
-        />
-
-        <button type="submit" className={`${primaryBtn} mt-6`} disabled={code.length < 6 || busy}>
-          {busy ? "Checking…" : "Verify and log in"}
+        <button type="button" onClick={() => sendLink()} disabled={busy} className="text-sm font-semibold text-ink-500 hover:text-ink-900 disabled:opacity-50">
+          {busy ? "Sending…" : "Didn't get it? Send another link"}
         </button>
-        <button type="button" onClick={() => sendCode()} disabled={busy} className="mt-4 w-full text-sm font-semibold text-ink-500 hover:text-ink-900 disabled:opacity-50">
-          Didn&apos;t get it? Resend code
-        </button>
-      </form>
+      </div>
     );
   }
 
@@ -365,7 +337,7 @@ export function LoginForm({
       </span>
       <h1 className="text-2xl font-extrabold font-display text-ink-900 mb-2">Continue with {label}</h1>
       <p className="text-ink-500">
-        {label} sign-in isn&apos;t switched on yet. Use a password or an email code for now.
+        {label} sign-in isn&apos;t switched on yet. Use a password or an email link for now.
       </p>
     </div>
   );
