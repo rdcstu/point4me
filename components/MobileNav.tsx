@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { MenuIcon, CloseIcon } from "./Icons";
+import { AuthButtons } from "./AuthButtons";
 
 const links = [
   { href: "#deals", label: "Deals" },
@@ -59,20 +60,7 @@ export function MobileNav() {
               {l.label}
             </a>
           ))}
-          <a
-            href="/login"
-            onClick={closeMenu}
-            className="text-base font-semibold text-ink-700 hover:text-sun-600 transition-colors py-2"
-          >
-            Log in
-          </a>
-          <a
-            href="/signup"
-            onClick={closeMenu}
-            className="bg-sun-500 hover:bg-sun-600 text-ink-900 px-4 py-3 rounded-full text-base font-bold transition-colors text-center mt-4"
-          >
-            Sign up free
-          </a>
+          <AuthButtons variant="mobile" onNavigate={closeMenu} />
         </nav>
       </div>
     </div>

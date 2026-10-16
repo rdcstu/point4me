@@ -5,6 +5,7 @@
 // ============================================================
 
 import { MobileNav } from "@/components/MobileNav";
+import { AuthButtons } from "@/components/AuthButtons";
 import { SearchBox } from "@/components/SearchBox";
 import { DealCarousel } from "@/components/DealCarousel";
 import { Newsletter } from "@/components/Newsletter";
@@ -61,10 +62,7 @@ export default function Home() {
             <a href="#faq" className="text-sm font-semibold text-white/80 hover:text-white transition-colors">FAQ</a>
           </div>
           <div className="hidden md:flex items-center gap-3">
-            <a href="/login" className="text-sm font-semibold text-white/90 hover:text-white px-3 py-2">Log in</a>
-            <a href="/signup" className="rounded-full bg-sun-500 hover:bg-sun-600 px-5 py-2 text-sm font-bold text-ink-900 transition-colors">
-              Sign up free
-            </a>
+            <AuthButtons />
           </div>
           <MobileNav />
         </div>

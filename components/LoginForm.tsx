@@ -1,16 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { GoogleIcon, AppleIcon } from "./Icons";
+import { createClient, enabledProviders } from "@/lib/supabase/client";
 
 // ============================================================
-// LOGIN FORM — demo only.
-// Nothing is sent anywhere: there is no account system yet.
-// Hook these handlers up to a real auth provider later.
+// LOGIN FORM — signs people in with Supabase Auth.
+// Methods: email + password, emailed one-time code, Google, Apple.
+// Google/Apple only go live once listed in NEXT_PUBLIC_AUTH_PROVIDERS.
 // ============================================================
 
-type Step = "choose" | "password" | "email-code" | "enter-code" | "provider" | "done";
+type Step = "choose" | "password" | "email-code" | "enter-code" | "provider";
+type Provider = "google" | "apple";
 
 const iconBox = "h-11 w-11 shrink-0 rounded-2xl flex items-center justify-center";
 
@@ -53,26 +55,122 @@ function BackButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+function ErrorNote({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <p role="alert" className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 ring-1 ring-rose-200">
+      {message}
+    </p>
+  );
+}
+
+// Turn Supabase error messages into friendlier copy
+function friendly(message: string) {
+  const m = message.toLowerCase();
+  if (m.includes("invalid login credentials")) return "That email and password don't match. Try again or log in with a code.";
+  if (m.includes("email not confirmed")) return "Please confirm your email first. Check your inbox for the confirmation link.";
+  if (m.includes("signups not allowed") || m.includes("user not found")) return "We couldn't find an account with that email. Sign up first?";
+  if (m.includes("token") || m.includes("otp")) return "That code is wrong or has expired. Request a new one.";
+  if (m.includes("rate limit") || m.includes("too many")) return "Too many attempts. Please wait a few minutes and try again.";
+  return message;
+}
+
 const inputClass =
   "w-full rounded-xl border border-ink-200 bg-white px-4 py-3 text-base text-ink-900 placeholder:text-ink-400 focus:border-sun-500 focus:outline-none focus:ring-4 focus:ring-sun-300/40";
 const labelClass = "block text-sm font-semibold text-ink-700 mb-1.5";
 const primaryBtn =
   "w-full rounded-full bg-sun-500 hover:bg-sun-600 px-6 py-3.5 text-base font-bold text-ink-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
 
-export function LoginForm({ siteName }: { siteName: string }) {
+export function LoginForm({
+  siteName,
+  next = "/account",
+  initialError = null,
+}: {
+  siteName: string;
+  next?: string;
+  initialError?: string | null;
+}) {
+  const router = useRouter();
   const [step, setStep] = useState<Step>("choose");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [code, setCode] = useState("");
-  const [provider, setProvider] = useState<"Google" | "Apple">("Google");
+  const [provider, setProvider] = useState<Provider>("google");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(initialError);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const go = (s: Step) => {
+    setError(null);
+    setNotice(null);
+    setStep(s);
+  };
 
   const reset = () => {
-    setStep("choose");
     setPassword("");
     setCode("");
     setShowPassword(false);
+    go("choose");
   };
+
+  const signedIn = () => {
+    router.replace(next);
+    router.refresh();
+  };
+
+  const callbackUrl = () => `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
+
+  async function loginWithPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const { error } = await createClient().auth.signInWithPassword({ email, password });
+    setBusy(false);
+    if (error) return setError(friendly(error.message));
+    setPassword("");
+    signedIn();
+  }
+
+  async function sendCode(e?: React.FormEvent) {
+    e?.preventDefault();
+    setBusy(true);
+    setError(null);
+    const { error } = await createClient().auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false, emailRedirectTo: callbackUrl() },
+    });
+    setBusy(false);
+    if (error) return setError(friendly(error.message));
+    setCode("");
+    setStep("enter-code");
+    setNotice(`We sent a code to ${email}.`);
+  }
+
+  async function verifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const { error } = await createClient().auth.verifyOtp({ email, token: code, type: "email" });
+    setBusy(false);
+    if (error) return setError(friendly(error.message));
+    signedIn();
+  }
+
+  async function startOAuth(p: Provider) {
+    setProvider(p);
+    if (!enabledProviders().includes(p)) return go("provider");
+    setBusy(true);
+    const { error } = await createClient().auth.signInWithOAuth({
+      provider: p,
+      options: { redirectTo: callbackUrl() },
+    });
+    if (error) {
+      setBusy(false);
+      setError(friendly(error.message));
+    }
+    // On success the browser is sent to Google/Apple, then back to /auth/callback
+  }
 
   const options = [
     {
@@ -80,34 +178,28 @@ export function LoginForm({ siteName }: { siteName: string }) {
       desc: "Log in with your email and password.",
       icon: <KeyIcon />,
       iconClass: "bg-ink-900 text-sun-400",
-      onClick: () => setStep("password"),
+      onClick: () => go("password"),
     },
     {
       label: "Email me a code",
       desc: "We'll send a one-time code. No password needed.",
       icon: <MailIcon />,
       iconClass: "bg-sun-500 text-ink-900",
-      onClick: () => setStep("email-code"),
+      onClick: () => go("email-code"),
     },
     {
       label: "Continue with Google",
       desc: "Use your Google account.",
       icon: <GoogleIcon />,
       iconClass: "bg-white ring-1 ring-ink-100",
-      onClick: () => {
-        setProvider("Google");
-        setStep("provider");
-      },
+      onClick: () => startOAuth("google"),
     },
     {
       label: "Continue with Apple",
       desc: "Use your Apple ID.",
       icon: <AppleIcon />,
       iconClass: "bg-ink-950 text-white",
-      onClick: () => {
-        setProvider("Apple");
-        setStep("provider");
-      },
+      onClick: () => startOAuth("apple"),
     },
   ];
 
@@ -120,13 +212,16 @@ export function LoginForm({ siteName }: { siteName: string }) {
         </h1>
         <p className="text-center text-ink-500 mb-7">Choose how you&apos;d like to sign in.</p>
 
+        <ErrorNote message={error} />
+
         <ul className="space-y-3">
           {options.map((o) => (
             <li key={o.label}>
               <button
                 type="button"
                 onClick={o.onClick}
-                className="group w-full flex items-center gap-4 rounded-2xl border border-ink-100 bg-white p-4 text-left hover:border-ink-200 hover:bg-ink-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-sun-300/50 transition-colors"
+                disabled={busy}
+                className="group w-full flex items-center gap-4 rounded-2xl border border-ink-100 bg-white p-4 text-left hover:border-ink-200 hover:bg-ink-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-sun-300/50 transition-colors disabled:opacity-60"
               >
                 <span className={`${iconBox} ${o.iconClass}`}>{o.icon}</span>
                 <span className="flex-1 min-w-0">
@@ -149,16 +244,11 @@ export function LoginForm({ siteName }: { siteName: string }) {
   // ---------- Step: email + password ----------
   if (step === "password") {
     return (
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          setPassword("");
-          setStep("done");
-        }}
-        aria-label="Log in with password"
-      >
+      <form onSubmit={loginWithPassword} aria-label="Log in with password">
         <BackButton onClick={reset} />
         <h1 className="text-2xl font-extrabold font-display text-ink-900 mb-6">Log in with a password</h1>
+
+        <ErrorNote message={error} />
 
         <div className="space-y-4">
           <div>
@@ -168,7 +258,14 @@ export function LoginForm({ siteName }: { siteName: string }) {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label htmlFor="password" className="text-sm font-semibold text-ink-700">Password</label>
-              <button type="button" onClick={() => setStep("email-code")} className="text-sm font-semibold text-sun-600 hover:text-ink-900">
+              <button
+                type="button"
+                onClick={() => {
+                  go("email-code");
+                  setNotice("Log in with a one-time code, then set a new password from your account page.");
+                }}
+                className="text-sm font-semibold text-sun-600 hover:text-ink-900"
+              >
                 Forgot password?
               </button>
             </div>
@@ -194,8 +291,8 @@ export function LoginForm({ siteName }: { siteName: string }) {
           </div>
         </div>
 
-        <button type="submit" className={`${primaryBtn} mt-6`} disabled={!email || !password}>
-          Log in
+        <button type="submit" className={`${primaryBtn} mt-6`} disabled={!email || !password || busy}>
+          {busy ? "Logging in…" : "Log in"}
         </button>
       </form>
     );
@@ -204,22 +301,18 @@ export function LoginForm({ siteName }: { siteName: string }) {
   // ---------- Step: request a one-time code ----------
   if (step === "email-code") {
     return (
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          setStep("enter-code");
-        }}
-        aria-label="Email me a sign-in code"
-      >
+      <form onSubmit={sendCode} aria-label="Email me a sign-in code">
         <BackButton onClick={reset} />
         <h1 className="text-2xl font-extrabold font-display text-ink-900 mb-2">Email me a code</h1>
-        <p className="text-ink-500 mb-6">Enter your email and we&apos;ll send a 6-digit code to sign in.</p>
+        <p className="text-ink-500 mb-6">{notice ?? "Enter your email and we'll send a code to sign in."}</p>
+
+        <ErrorNote message={error} />
 
         <label htmlFor="code-email" className={labelClass}>Email</label>
         <input id="code-email" type="email" autoComplete="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className={inputClass} />
 
-        <button type="submit" className={`${primaryBtn} mt-6`} disabled={!email}>
-          Send code
+        <button type="submit" className={`${primaryBtn} mt-6`} disabled={!email || busy}>
+          {busy ? "Sending…" : "Send code"}
         </button>
       </form>
     );
@@ -228,75 +321,52 @@ export function LoginForm({ siteName }: { siteName: string }) {
   // ---------- Step: enter the one-time code ----------
   if (step === "enter-code") {
     return (
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          setStep("done");
-        }}
-        aria-label="Enter sign-in code"
-      >
+      <form onSubmit={verifyCode} aria-label="Enter sign-in code">
         <BackButton onClick={reset} />
         <h1 className="text-2xl font-extrabold font-display text-ink-900 mb-2">Check your email</h1>
         <p className="text-ink-500 mb-6">
-          We sent a code to <span className="font-semibold text-ink-900">{email}</span>.
+          We sent a code to <span className="font-semibold text-ink-900">{email}</span>. You can also just click the link in that email.
         </p>
 
-        <label htmlFor="otp" className={labelClass}>6-digit code</label>
+        <ErrorNote message={error} />
+
+        <label htmlFor="otp" className={labelClass}>Code from the email</label>
         <input
           id="otp"
           inputMode="numeric"
           autoComplete="one-time-code"
-          pattern="[0-9]{6}"
-          maxLength={6}
+          pattern="[0-9]{6,10}"
+          maxLength={10}
           required
           autoFocus
           value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-          placeholder="••••••"
-          className={`${inputClass} text-center text-2xl font-bold tracking-[0.5em]`}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 10))}
+          placeholder="123456"
+          className={`${inputClass} text-center text-2xl font-bold tracking-[0.4em]`}
         />
 
-        <button type="submit" className={`${primaryBtn} mt-6`} disabled={code.length !== 6}>
-          Verify and log in
+        <button type="submit" className={`${primaryBtn} mt-6`} disabled={code.length < 6 || busy}>
+          {busy ? "Checking…" : "Verify and log in"}
         </button>
-        <button type="button" onClick={() => setCode("")} className="mt-4 w-full text-sm font-semibold text-ink-500 hover:text-ink-900">
+        <button type="button" onClick={() => sendCode()} disabled={busy} className="mt-4 w-full text-sm font-semibold text-ink-500 hover:text-ink-900 disabled:opacity-50">
           Didn&apos;t get it? Resend code
         </button>
       </form>
     );
   }
 
-  // ---------- Step: social provider (placeholder) ----------
-  if (step === "provider") {
-    return (
-      <div className="text-center">
-        <BackButton onClick={reset} />
-        <span className={`${iconBox} mx-auto mb-4 ${provider === "Google" ? "bg-white ring-1 ring-ink-100" : "bg-ink-950 text-white"}`}>
-          {provider === "Google" ? <GoogleIcon /> : <AppleIcon />}
-        </span>
-        <h1 className="text-2xl font-extrabold font-display text-ink-900 mb-2">Continue with {provider}</h1>
-        <p className="text-ink-500">
-          {provider} sign-in isn&apos;t connected yet in this demo. Use a password or an email code for now.
-        </p>
-      </div>
-    );
-  }
-
-  // ---------- Step: done (demo) ----------
+  // ---------- Step: social provider not switched on yet ----------
+  const label = provider === "google" ? "Google" : "Apple";
   return (
-    <div className="text-center" role="status">
-      <span className={`${iconBox} mx-auto mb-4 bg-emerald-100 text-emerald-700`}>
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-        </svg>
+    <div className="text-center">
+      <BackButton onClick={reset} />
+      <span className={`${iconBox} mx-auto mb-4 ${provider === "google" ? "bg-white ring-1 ring-ink-100" : "bg-ink-950 text-white"}`}>
+        {provider === "google" ? <GoogleIcon /> : <AppleIcon />}
       </span>
-      <h1 className="text-2xl font-extrabold font-display text-ink-900 mb-2">You&apos;re in (demo)</h1>
-      <p className="text-ink-500 mb-6">
-        This is a front-end preview. No account was checked and nothing was sent.
+      <h1 className="text-2xl font-extrabold font-display text-ink-900 mb-2">Continue with {label}</h1>
+      <p className="text-ink-500">
+        {label} sign-in isn&apos;t switched on yet. Use a password or an email code for now.
       </p>
-      <Link href="/" className={`${primaryBtn} inline-block`}>
-        Back to search
-      </Link>
     </div>
   );
 }
