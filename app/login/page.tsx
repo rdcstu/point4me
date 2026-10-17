@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 import { LoginForm } from "@/components/LoginForm";
 import { PlaneIcon } from "@/components/Icons";
 import { site } from "@/lib/site";
@@ -9,7 +11,21 @@ export const metadata: Metadata = {
   description: `Log in to ${site.name} to search award flights with your points.`,
 };
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string; error?: string }>;
+}) {
+  const { next: rawNext, error } = await searchParams;
+  const next = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/account";
+
+  // Already signed in? Skip the form.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user) redirect(next);
+
   return (
     <main className="hero-sky relative min-h-screen flex flex-col items-center justify-center px-4 py-12 overflow-hidden">
       {/* Decorative flight path, same as the home page hero */}
@@ -26,7 +42,7 @@ export default function LoginPage() {
         </Link>
 
         <div className="rounded-3xl bg-white p-6 sm:p-8 shadow-2xl shadow-ink-950/40">
-          <LoginForm siteName={site.name} />
+          <LoginForm siteName={site.name} next={next} initialError={error ?? null} />
         </div>
 
         <p className="mt-6 text-center text-sm text-white/70">

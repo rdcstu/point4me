@@ -2,14 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { createClient, enabledProviders } from "@/lib/supabase/client";
 import { signupPlans, type SignupPlan } from "@/lib/site";
 import { CheckIcon, ArrowRightIcon, BoltIcon, GoogleIcon, AppleIcon } from "./Icons";
 
 // ============================================================
-// SIGN-UP FLOW — demo only.
+// SIGN-UP FLOW — creates real accounts with Supabase Auth.
 // Step 1: pick a plan (monthly / annual toggle)
 // Step 2: create an account (Google, Apple, or email + password)
-// Nothing is sent anywhere and no payment is collected.
+// The chosen plan is saved on the account; no payment is collected yet.
 // ============================================================
 
 type Billing = "annual" | "monthly";
@@ -53,6 +55,9 @@ export function SignupFlow({ siteName }: { siteName: string }) {
   const [newsletter, setNewsletter] = useState(true);
   const [providerNote, setProviderNote] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
   const accountRef = useRef<HTMLElement>(null);
 
   // Pre-select a plan from ?plan=member links on the home page
@@ -64,6 +69,7 @@ export function SignupFlow({ siteName }: { siteName: string }) {
   const choose = (id: string) => {
     setPlanId(id);
     setDone(false);
+    setError(null);
     setProviderNote(null);
     requestAnimationFrame(() => accountRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
@@ -71,6 +77,17 @@ export function SignupFlow({ siteName }: { siteName: string }) {
   const plan = signupPlans.find((p) => p.id === planId) ?? null;
   const strength = passwordStrength(password);
   const canSubmit = name.trim() && email && password.length >= 8 && agree;
+
+  async function social(provider: "google" | "apple") {
+    const label = provider === "google" ? "Google" : "Apple";
+    if (!enabledProviders().includes(provider)) return setProviderNote(label);
+    setProviderNote(null);
+    const { error } = await createClient().auth.signInWithOAuth({
+      provider,
+      options: { redirectTo: `${window.location.origin}/auth/callback?next=/account` },
+    });
+    if (error) setError(error.message);
+  }
 
   return (
     <>
@@ -208,22 +225,52 @@ export function SignupFlow({ siteName }: { siteName: string }) {
                 <CheckIcon className="w-7 h-7" />
               </span>
               <h2 className="text-2xl font-extrabold font-display text-ink-900 mb-2">
-                Welcome aboard{name.trim() ? `, ${name.trim().split(" ")[0]}` : ""}! (demo)
+                Check your email{name.trim() ? `, ${name.trim().split(" ")[0]}` : ""}
               </h2>
               <p className="text-ink-500 mb-6">
-                Your {plan.name} account would be ready now. This is a front-end preview: no account was created, nothing was sent and no payment was taken.
+                We sent a confirmation link to <span className="font-semibold text-ink-900">{email}</span>. Click it to finish creating your {plan.name} account. It may take a minute to arrive, so check your spam folder too.
               </p>
-              <Link href="/" className="inline-block rounded-full bg-sun-500 hover:bg-sun-600 px-7 py-3.5 font-bold text-ink-900 transition-colors">
-                Start searching
+              <Link href="/login" className="inline-block rounded-full bg-sun-500 hover:bg-sun-600 px-7 py-3.5 font-bold text-ink-900 transition-colors">
+                Go to log in
               </Link>
             </div>
           ) : (
             <form
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
-                if (!canSubmit) return;
+                if (!canSubmit || busy) return;
+                setBusy(true);
+                setError(null);
+                const { data, error } = await createClient().auth.signUp({
+                  email,
+                  password,
+                  options: {
+                    emailRedirectTo: `${window.location.origin}/auth/callback?next=/account`,
+                    data: { full_name: name.trim(), plan: plan.id, billing, newsletter },
+                  },
+                });
+                setBusy(false);
+                if (error) {
+                  const m = error.message.toLowerCase();
+                  setError(
+                    m.includes("already registered")
+                      ? "An account with this email already exists. Log in instead?"
+                      : m.includes("rate limit")
+                      ? "Too many sign-up emails were sent recently. Please wait a few minutes and try again."
+                      : m.includes("password")
+                      ? error.message
+                      : `Sign-up failed: ${error.message}`
+                  );
+                  return;
+                }
                 setPassword("");
-                setDone(true);
+                if (data.session) {
+                  // Email confirmation is off: they're signed in already
+                  router.replace("/account");
+                  router.refresh();
+                } else {
+                  setDone(true);
+                }
               }}
               aria-label="Create your account"
             >
@@ -249,14 +296,14 @@ export function SignupFlow({ siteName }: { siteName: string }) {
               <div className="grid grid-cols-1 gap-3">
                 <button
                   type="button"
-                  onClick={() => setProviderNote("Google")}
+                  onClick={() => social("google")}
                   className="inline-flex items-center justify-center gap-2 rounded-full border border-ink-200 bg-white px-4 py-3 font-semibold text-ink-900 hover:bg-ink-50 transition-colors"
                 >
                   <GoogleIcon /> Continue with Google
                 </button>
                 <button
                   type="button"
-                  onClick={() => setProviderNote("Apple")}
+                  onClick={() => social("apple")}
                   className="inline-flex items-center justify-center gap-2 rounded-full bg-ink-950 px-4 py-3 font-semibold text-white hover:bg-ink-800 transition-colors"
                 >
                   <AppleIcon /> Continue with Apple
@@ -264,7 +311,7 @@ export function SignupFlow({ siteName }: { siteName: string }) {
               </div>
               {providerNote && (
                 <p role="status" className="mt-3 text-sm text-ink-500 text-center">
-                  {providerNote} sign-up isn&apos;t connected yet in this demo. Use your email below.
+                  {providerNote} sign-up isn&apos;t switched on yet. Use your email below.
                 </p>
               )}
 
@@ -326,15 +373,21 @@ export function SignupFlow({ siteName }: { siteName: string }) {
                 </label>
               </div>
 
+              {error && (
+                <p role="alert" className="mt-5 rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 ring-1 ring-rose-200">
+                  {error}
+                </p>
+              )}
+
               <button
                 type="submit"
-                disabled={!canSubmit}
+                disabled={!canSubmit || busy}
                 className="mt-6 w-full rounded-full bg-sun-500 hover:bg-sun-600 px-6 py-3.5 text-base font-bold text-ink-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {plan.monthly === 0 ? "Create free account" : `Create account & continue`}
+                {busy ? "Creating account…" : plan.monthly === 0 ? "Create free account" : "Create account"}
               </button>
               {plan.monthly > 0 && (
-                <p className="mt-3 text-center text-xs text-ink-400">Demo: you won&apos;t be asked for payment details.</p>
+                <p className="mt-3 text-center text-xs text-ink-400">Your plan choice is saved. Payments aren&apos;t set up yet, so you won&apos;t be charged.</p>
               )}
 
               <p className="mt-6 text-center text-sm text-ink-500">
