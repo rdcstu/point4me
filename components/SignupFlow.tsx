@@ -56,6 +56,7 @@ export function SignupFlow({ siteName }: { siteName: string }) {
   const [providerNote, setProviderNote] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const accountRef = useRef<HTMLElement>(null);
@@ -64,6 +65,10 @@ export function SignupFlow({ siteName }: { siteName: string }) {
   useEffect(() => {
     const p = new URLSearchParams(window.location.search).get("plan");
     if (p && signupPlans.some((x) => x.id === p)) setPlanId(p);
+    // Already signed in? Then picking a paid plan goes straight to payment.
+    createClient()
+      .auth.getUser()
+      .then(({ data }) => setSignedInEmail(data.user?.email ?? null));
   }, []);
 
   const choose = (id: string) => {
@@ -211,7 +216,31 @@ export function SignupFlow({ siteName }: { siteName: string }) {
       {/* ============================================================ */}
       <section ref={accountRef} id="account" className="py-16 md:py-20 bg-white scroll-mt-4" aria-live="polite">
         <div className="container mx-auto px-4 md:px-6 max-w-md">
-          {!plan ? (
+          {plan && signedInEmail ? (
+            <div className="text-center">
+              <h2 className="text-2xl sm:text-3xl font-extrabold font-display text-ink-900 mb-2">
+                {plan.monthly ? `Subscribe to ${plan.name}` : "You're all set"}
+              </h2>
+              <p className="text-ink-500 mb-6">
+                Signed in as <span className="font-semibold text-ink-900">{signedInEmail}</span>.
+              </p>
+              {plan.monthly ? (
+                <form action="/api/stripe/checkout" method="post">
+                  <input type="hidden" name="plan" value={plan.id} />
+                  <input type="hidden" name="billing" value={billing} />
+                  <button type="submit" className="w-full rounded-full bg-sun-500 hover:bg-sun-600 px-6 py-3.5 text-base font-bold text-ink-900 transition-colors">
+                    Continue to payment · {priceFor(plan, billing).main}
+                    {priceFor(plan, billing).sub}
+                  </button>
+                  <p className="mt-3 text-xs text-ink-400">{priceFor(plan, billing).note || "Billed monthly"}. Secure payment by Stripe. Cancel anytime.</p>
+                </form>
+              ) : (
+                <Link href="/account" className="inline-block rounded-full bg-sun-500 hover:bg-sun-600 px-7 py-3.5 font-bold text-ink-900 transition-colors">
+                  Go to my account
+                </Link>
+              )}
+            </div>
+          ) : !plan ? (
             <div className="text-center rounded-3xl border-2 border-dashed border-ink-200 p-8">
               <h2 className="text-2xl font-bold font-display text-ink-900 mb-2">Create your account</h2>
               <p className="text-ink-500 mb-5">Pick a plan above to get started. You can change it any time.</p>
@@ -387,7 +416,7 @@ export function SignupFlow({ siteName }: { siteName: string }) {
                 {busy ? "Creating account…" : plan.monthly === 0 ? "Create free account" : "Create account"}
               </button>
               {plan.monthly > 0 && (
-                <p className="mt-3 text-center text-xs text-ink-400">Your plan choice is saved. Payments aren&apos;t set up yet, so you won&apos;t be charged.</p>
+                <p className="mt-3 text-center text-xs text-ink-400">After you confirm your email, you&apos;ll subscribe from your account page. Secure payment by Stripe.</p>
               )}
 
               <p className="mt-6 text-center text-sm text-ink-500">
