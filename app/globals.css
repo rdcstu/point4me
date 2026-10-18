@@ -30,6 +30,7 @@
 }
 
 body {
+  overflow-x: clip; /* off-screen menus never cause sideways scrolling */
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   background-color: #ffffff;
   color: var(--color-ink-900);

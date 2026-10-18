@@ -6,18 +6,13 @@ import { ChangePassword } from "@/components/ChangePassword";
 import { CheckIcon, PlaneIcon } from "@/components/Icons";
 import { site, signupPlans } from "@/lib/site";
 import { activePlan, getSubscription } from "@/lib/entitlements";
+import { priceLabel } from "@/lib/pricing";
 
 export const metadata: Metadata = {
   title: `My account — ${site.name}`,
 };
 
 const dateFmt = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" });
-
-function priceLabel(planId: string, billing: string) {
-  const p = signupPlans.find((x) => x.id === planId);
-  if (!p || !p.monthly) return "";
-  return billing === "monthly" ? `$${p.monthly}/month` : `$${p.annual}/year`;
-}
 
 export default async function AccountPage({
   searchParams,

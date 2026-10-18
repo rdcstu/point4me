@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { signupPlans } from "@/lib/site";
 import type { PaidPlanId } from "@/lib/entitlements";
+import { priceFor } from "@/lib/pricing";
 
 // Shown in place of content the visitor's plan doesn't include.
 // Usage: {hasPlan(user, "member") ? <Content /> : <Paywall required="member" signedIn={!!user} />}
@@ -16,7 +17,7 @@ export function Paywall({ required, signedIn, title }: { required: PaidPlanId; s
       </span>
       <h3 className="text-xl font-bold font-display mb-2">{title ?? `Included with ${plan.name}`}</h3>
       <p className="text-white/70 mb-6 max-w-md mx-auto">
-        Upgrade to {plan.name} from ${plan.annual / 12 % 1 === 0 ? plan.annual / 12 : (plan.annual / 12).toFixed(2)}/month (billed yearly) to unlock this.
+        Upgrade to {plan.name} from {priceFor(plan, "annual").main}/month (billed yearly) to unlock this.
       </p>
       {signedIn ? (
         <form action="/api/stripe/checkout" method="post" className="inline-block">

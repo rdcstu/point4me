@@ -39,11 +39,13 @@ export function MobileNav() {
         />
       )}
 
-      {/* Mobile Menu Panel */}
+      {/* Mobile Menu Panel — inside a screen-sized frame that clips it, so the
+          closed (off-screen) panel never makes the page scroll sideways */}
+      <div className="fixed inset-x-0 top-16 bottom-0 z-50 overflow-hidden pointer-events-none" aria-hidden={!isOpen}>
       <div
         id="mobile-menu"
-        className={`fixed top-16 right-0 z-50 w-64 h-[calc(100vh-4rem)] bg-white border-l border-ink-100 transform transition-transform duration-300 ease-in-out ${
-          isOpen ? "translate-x-0" : "translate-x-full"
+        className={`pointer-events-auto absolute top-0 right-0 w-64 h-full bg-white border-l border-ink-100 transform transition-[transform,visibility] duration-300 ease-in-out ${
+          isOpen ? "translate-x-0 visible" : "translate-x-full invisible"
         }`}
         role="dialog"
         aria-modal="true"
@@ -62,6 +64,7 @@ export function MobileNav() {
           ))}
           <AuthButtons variant="mobile" onNavigate={closeMenu} />
         </nav>
+      </div>
       </div>
     </div>
   );

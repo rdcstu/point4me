@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient, enabledProviders } from "@/lib/supabase/client";
-import { signupPlans, type SignupPlan } from "@/lib/site";
+import { signupPlans, conciergeFromPrice } from "@/lib/site";
+import { priceFor, maxSavingsPct, type Billing } from "@/lib/pricing";
 import { CheckIcon, ArrowRightIcon, BoltIcon, GoogleIcon, AppleIcon } from "./Icons";
 
 // ============================================================
@@ -14,24 +15,10 @@ import { CheckIcon, ArrowRightIcon, BoltIcon, GoogleIcon, AppleIcon } from "./Ic
 // The chosen plan is saved on the account; no payment is collected yet.
 // ============================================================
 
-type Billing = "annual" | "monthly";
 
 const inputClass =
   "w-full rounded-xl border border-ink-200 bg-white px-4 py-3 text-base text-ink-900 placeholder:text-ink-400 focus:border-sun-500 focus:outline-none focus:ring-4 focus:ring-sun-300/40";
 const labelClass = "block text-sm font-semibold text-ink-700 mb-1.5";
-
-function priceFor(plan: SignupPlan, billing: Billing) {
-  if (plan.monthly === 0) return { main: "Free", sub: "forever", note: "" };
-  if (billing === "monthly") return { main: `$${plan.monthly}`, sub: "/month", note: "Billed monthly" };
-  const perMonth = plan.annual / 12;
-  const full = plan.monthly * 12;
-  const savePct = Math.round((1 - plan.annual / full) * 100);
-  return {
-    main: `$${perMonth % 1 === 0 ? perMonth : perMonth.toFixed(2)}`,
-    sub: "/month",
-    note: `Billed $${plan.annual} yearly · save ${savePct}%`,
-  };
-}
 
 function passwordStrength(pw: string) {
   let score = 0;
@@ -65,6 +52,7 @@ export function SignupFlow({ siteName }: { siteName: string }) {
   useEffect(() => {
     const p = new URLSearchParams(window.location.search).get("plan");
     if (p && signupPlans.some((x) => x.id === p)) setPlanId(p);
+    if (new URLSearchParams(window.location.search).get("billing") === "monthly") setBilling("monthly");
     // Already signed in? Then picking a paid plan goes straight to payment.
     createClient()
       .auth.getUser()
@@ -123,7 +111,7 @@ export function SignupFlow({ siteName }: { siteName: string }) {
                   {b === "annual" ? "Yearly" : "Monthly"}
                   {b === "annual" && (
                     <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] ${billing === b ? "bg-sun-500 text-ink-900" : "bg-sun-300/60 text-ink-900"}`}>
-                      Save up to 33%
+                      Save up to {maxSavingsPct()}%
                     </span>
                   )}
                 </button>
@@ -153,6 +141,9 @@ export function SignupFlow({ siteName }: { siteName: string }) {
                   <p className={`text-sm mb-6 ${featured ? "text-white/70" : "text-ink-500"}`}>{p.blurb}</p>
 
                   <p className="mb-1">
+                    {price.was && (
+                      <span className={`mr-2 text-xl font-bold line-through ${featured ? "text-white/40" : "text-ink-400"}`}>{price.was}</span>
+                    )}
                     <span className="text-4xl font-extrabold font-display">{price.main}</span>
                     <span className={featured ? "text-white/60" : "text-ink-500"}> {price.sub}</span>
                   </p>
@@ -200,7 +191,7 @@ export function SignupFlow({ siteName }: { siteName: string }) {
               </span>
               <div>
                 <p className="text-xs font-bold uppercase tracking-widest text-ink-400 mb-1">More options</p>
-                <h3 className="text-lg font-bold text-ink-900">Concierge — from $150 per trip</h3>
+                <h3 className="text-lg font-bold text-ink-900">Concierge — from ${conciergeFromPrice} per trip</h3>
                 <p className="text-ink-500">Our experts find the flights and walk you through the transfers and booking.</p>
               </div>
             </div>
