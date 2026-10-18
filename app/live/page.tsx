@@ -45,10 +45,10 @@ export default async function LiveDataPage() {
                 </span>
                 <h1 className="text-3xl md:text-4xl font-extrabold font-display text-ink-900 mb-2">Live award search</h1>
                 <p className="text-ink-500">
-                  Searches your PointsYeah membership. Only you can see this page. A search takes about a minute.
+                  Searches your PointsYeah membership. Only you can see this page.
                 </p>
               </div>
-              <LiveSearch />
+              <LiveSearch inPage={Boolean(process.env.POINTSYEAH_REFRESH_TOKEN?.trim())} />
             </>
           ) : (
             <div className="text-center rounded-3xl bg-white ring-1 ring-ink-900/5 p-10">

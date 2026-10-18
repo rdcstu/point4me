@@ -29,7 +29,7 @@ function duration(min: number) {
 
 type Row = { result: FlightResult; route: FlightRoute };
 
-export function LiveSearch() {
+export function LiveSearch({ inPage = true }: { inPage?: boolean }) {
   const [form, setForm] = useState<LiveSearchParams>({
     departure: "SFO",
     arrival: "",
@@ -91,6 +91,12 @@ export function LiveSearch() {
   async function run(e: React.FormEvent) {
     e.preventDefault();
     if (!valid) return;
+    if (!inPage) {
+      // No PointsYeah token set up: open the search on PointsYeah instead
+      remember(form);
+      if (pyUrl) window.open(pyUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
     cancelRef.current = false;
     setPhase("starting");
     setError(null);
@@ -202,8 +208,9 @@ export function LiveSearch() {
 
         <div className="mt-5 flex flex-col sm:flex-row gap-3">
           <button type="submit" disabled={!valid || busy} className="rounded-full bg-sun-500 hover:bg-sun-600 px-6 py-3 font-bold text-ink-900 transition-colors disabled:opacity-50">
-            {busy ? "Searching…" : "Show results here"}
+            {!inPage ? "Search on PointsYeah ↗" : busy ? "Searching…" : "Show results here"}
           </button>
+          {inPage && (
           <a
             href={pyUrl ?? undefined}
             target="_blank"
@@ -213,12 +220,19 @@ export function LiveSearch() {
           >
             Open in PointsYeah ↗
           </a>
+          )}
           {busy && (
             <button type="button" onClick={() => (cancelRef.current = true)} className="text-sm font-semibold text-ink-500 hover:text-ink-900">
               Stop
             </button>
           )}
         </div>
+
+        {!inPage && (
+          <p className="mt-3 text-sm text-ink-500">
+            Opens results in PointsYeah, where you&apos;re signed in. In-page results turn on once a PointsYeah token is added to <code>.env.local</code>.
+          </p>
+        )}
 
         {recent.length > 0 && (
           <div className="mt-5">
