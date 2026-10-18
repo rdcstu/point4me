@@ -6,6 +6,7 @@
 
 import { MobileNav } from "@/components/MobileNav";
 import { AuthButtons } from "@/components/AuthButtons";
+import { LiveDataButton } from "@/components/LiveDataButton";
 import { SearchBox } from "@/components/SearchBox";
 import { DealCarousel } from "@/components/DealCarousel";
 import { Newsletter } from "@/components/Newsletter";
@@ -22,7 +23,7 @@ function Logo({ light = false }: { light?: boolean }) {
       <span className="h-8 w-8 rounded-full bg-sun-500 flex items-center justify-center text-ink-900">
         <PlaneIcon className="w-4 h-4 -rotate-45" />
       </span>
-      <span className={`text-xl font-extrabold tracking-tight font-display ${light ? "text-white" : "text-ink-900"}`}>
+      <span className={`text-base sm:text-xl font-extrabold tracking-tight font-display whitespace-nowrap ${light ? "text-white" : "text-ink-900"}`}>
         {site.name}
       </span>
     </a>
@@ -56,16 +57,20 @@ export default function Home() {
       <nav aria-label="Main navigation" className="sticky top-0 z-50 bg-ink-900/95 backdrop-blur-md border-b border-white/10">
         <div className="container mx-auto px-4 md:px-6 flex items-center justify-between h-16">
           <Logo light />
-          <div className="hidden md:flex items-center gap-8">
-            <a href="#deals" className="text-sm font-semibold text-white/80 hover:text-white transition-colors">Deals</a>
-            <a href="#how" className="text-sm font-semibold text-white/80 hover:text-white transition-colors">How it works</a>
-            <a href="#pricing" className="text-sm font-semibold text-white/80 hover:text-white transition-colors">Pricing</a>
-            <a href="#faq" className="text-sm font-semibold text-white/80 hover:text-white transition-colors">FAQ</a>
+          <div className="hidden lg:flex items-center gap-6 xl:gap-8">
+            <a href="#deals" className="whitespace-nowrap text-sm font-semibold text-white/80 hover:text-white transition-colors">Deals</a>
+            <a href="#how" className="whitespace-nowrap text-sm font-semibold text-white/80 hover:text-white transition-colors">How it works</a>
+            <a href="#pricing" className="whitespace-nowrap text-sm font-semibold text-white/80 hover:text-white transition-colors">Pricing</a>
+            <a href="#faq" className="whitespace-nowrap text-sm font-semibold text-white/80 hover:text-white transition-colors">FAQ</a>
           </div>
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden lg:flex items-center gap-3">
+            <LiveDataButton />
             <AuthButtons />
           </div>
-          <MobileNav />
+          <div className="flex lg:hidden items-center gap-2">
+            <LiveDataButton compact />
+            <MobileNav />
+          </div>
         </div>
       </nav>
 

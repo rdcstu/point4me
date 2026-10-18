@@ -95,8 +95,8 @@ export function AuthButtons({ variant = "desktop", onNavigate }: { variant?: "de
   if (!signedIn) {
     return (
       <>
-        <Link href="/login" className="text-sm font-semibold text-white/90 hover:text-white px-3 py-2">Log in</Link>
-        <Link href="/signup" className="rounded-full bg-sun-500 hover:bg-sun-600 px-5 py-2 text-sm font-bold text-ink-900 transition-colors">
+        <Link href="/login" className="whitespace-nowrap text-sm font-semibold text-white/90 hover:text-white px-3 py-2">Log in</Link>
+        <Link href="/signup" className="whitespace-nowrap rounded-full bg-sun-500 hover:bg-sun-600 px-5 py-2 text-sm font-bold text-ink-900 transition-colors">
           Sign up free
         </Link>
       </>
@@ -126,7 +126,7 @@ export function AuthButtons({ variant = "desktop", onNavigate }: { variant?: "de
           {initial || "•"}
         </span>
         My account
-        {plan && <PlanBadge plan={plan} className="hidden lg:inline-flex" />}
+        {plan && <PlanBadge plan={plan} className="hidden xl:inline-flex" />}
       </Link>
     </>
   );

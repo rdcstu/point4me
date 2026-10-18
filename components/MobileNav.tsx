@@ -18,7 +18,7 @@ export function MobileNav() {
   const closeMenu = () => setIsOpen(false);
 
   return (
-    <div className="md:hidden">
+    <div className="lg:hidden">
       {/* Hamburger Button */}
       <button
         onClick={toggleMenu}
