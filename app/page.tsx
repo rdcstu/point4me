@@ -10,7 +10,8 @@ import { SearchBox } from "@/components/SearchBox";
 import { DealCarousel } from "@/components/DealCarousel";
 import { Newsletter } from "@/components/Newsletter";
 import { CheckIcon, ArrowRightIcon, PlaneIcon, SparklesIcon, BoltIcon, TrendingUpIcon, BookOpenIcon } from "@/components/Icons";
-import { site, features, steps, plans, examples, faqs } from "@/lib/site";
+import { site, features, steps, examples, faqs, conciergeFromPrice } from "@/lib/site";
+import { PricingSection } from "@/components/PricingSection";
 
 const fmt = new Intl.NumberFormat("en-US");
 const featureIcons = [PlaneIcon, SparklesIcon, BookOpenIcon, TrendingUpIcon];
@@ -219,51 +220,14 @@ export default function Home() {
               <p className="text-sm font-bold uppercase tracking-widest text-sun-600 mb-2">Membership</p>
               <h2 className="text-3xl md:text-4xl font-bold font-display text-ink-900">Pick how much help you want</h2>
             </div>
-            <div className="grid md:grid-cols-3 gap-6 items-stretch">
-              {plans.map((p) => (
-                <div
-                  key={p.name}
-                  className={`relative rounded-3xl p-8 flex flex-col ${
-                    p.highlight ? "bg-ink-900 text-white shadow-2xl shadow-ink-900/30 md:-translate-y-3" : "bg-ink-50 text-ink-900"
-                  }`}
-                >
-                  {p.highlight && (
-                    <span className="absolute -top-3 left-8 rounded-full bg-sun-500 px-3 py-1 text-xs font-extrabold tracking-wider text-ink-900">
-                      MOST POPULAR
-                    </span>
-                  )}
-                  <h3 className="text-lg font-bold mb-1">{p.name}</h3>
-                  <p className={`text-sm mb-6 ${p.highlight ? "text-white/70" : "text-ink-500"}`}>{p.blurb}</p>
-                  <p className="mb-6">
-                    <span className="text-4xl font-extrabold font-display">{p.price}</span>
-                    <span className={p.highlight ? "text-white/60" : "text-ink-500"}>{p.period}</span>
-                  </p>
-                  <ul className="space-y-3 mb-8 flex-1">
-                    {p.features.map((f) => (
-                      <li key={f} className="flex items-start gap-3">
-                        <CheckIcon className={`w-5 h-5 shrink-0 ${p.highlight ? "text-sun-400" : "text-emerald-600"}`} />
-                        <span className={p.highlight ? "text-white/90" : "text-ink-700"}>{f}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <a
-                    href={p.id === "concierge" ? "/signup#plans" : `/signup?plan=${p.id}`}
-                    className={`rounded-full px-6 py-3 text-center font-bold transition-colors ${
-                      p.highlight ? "bg-sun-500 hover:bg-sun-600 text-ink-900" : "bg-ink-900 hover:bg-ink-800 text-white"
-                    }`}
-                  >
-                    {p.cta}
-                  </a>
-                </div>
-              ))}
-            </div>
+            <PricingSection />
           </div>
         </section>
 
         {/* ============================================================ */}
         {/* CONCIERGE PROMO                                              */}
         {/* ============================================================ */}
-        <section className="pb-20 bg-white">
+        <section id="concierge" className="pb-20 bg-white scroll-mt-20">
           <div className="container mx-auto px-4 md:px-6 max-w-6xl">
             <div className="rounded-[2rem] bg-gradient-to-br from-sun-400 to-sun-500 p-8 md:p-12 grid md:grid-cols-[1fr_auto] gap-8 items-center">
               <div>
@@ -271,7 +235,7 @@ export default function Home() {
                   No time to research transfers?
                 </h2>
                 <p className="text-ink-800 text-lg max-w-xl">
-                  Tell us where you want to go. A points expert plans the routing, the transfers and the booking with you.
+                  Tell us where you want to go. A points expert plans the routing, the transfers and the booking with you. From ${conciergeFromPrice} per trip.
                 </p>
               </div>
               <a href="#pricing" className="inline-flex items-center justify-center gap-2 rounded-full bg-ink-900 hover:bg-ink-800 px-7 py-4 font-bold text-white transition-colors">

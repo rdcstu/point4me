@@ -48,38 +48,8 @@ export const steps = [
   { title: "Book with confidence", body: "Follow the guided transfer-and-book steps. No guesswork." },
 ];
 
-export const plans = [
-  {
-    id: "explorer",
-    name: "Explorer",
-    price: "Free",
-    period: "",
-    blurb: "Get a feel for what your points can do.",
-    features: ["Browse curated deals", "Points value calculator", "Weekly deals email"],
-    cta: "Start exploring",
-    highlight: false,
-  },
-  {
-    id: "member",
-    name: "Member",
-    price: "$12",
-    period: "/month",
-    blurb: "For travelers who book a few award trips a year.",
-    features: ["Unlimited award searches", "Personalized wallet filtering", "Seat alerts on saved routes", "Booking instructions for every result"],
-    cta: "Become a member",
-    highlight: true,
-  },
-  {
-    id: "concierge",
-    name: "Concierge",
-    price: "$150",
-    period: "/trip",
-    blurb: "We find and help book the trip for you.",
-    features: ["Expert-planned itinerary", "Help with transfers", "Priority support"],
-    cta: "Get expert help",
-    highlight: false,
-  },
-];
+// Concierge is a one-off service, not a subscription plan
+export const conciergeFromPrice = 150; // USD per trip
 
 export const examples = [
   { route: "SFO → Tokyo, Business", cash: 4820, points: 75000, taxes: 86 },
@@ -144,7 +114,7 @@ export const signupPlans: SignupPlan[] = [
     badge: "BEST DEAL",
     blurb: "For frequent travelers who want expert help on call.",
     monthly: 20,
-    annual: 180,
+    annual: 144, // biggest yearly discount (40%) to reward the top plan
     includesLabel: "Everything in Member, plus:",
     features: [
       "Free 30-minute points strategy session",
