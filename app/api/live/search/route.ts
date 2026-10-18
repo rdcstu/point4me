@@ -1,48 +1,50 @@
-// POST /api/live/search — starts a PointsYeah search (owner only). Returns { taskId }.
+// POST /api/live/search — searches the official PointsYeah API (owner only).
 import { requireOwner } from "@/lib/live-guard";
-import { createSearchTask, PointsYeahError } from "@/lib/pointsyeah";
-import { buildPointsYeahUrl, type Cabin, type LiveSearchParams } from "@/lib/pointsyeah-url";
+import { searchExplorer, PointsYeahError, type ApiCabin, type SortKey } from "@/lib/pointsyeah";
 
-export const maxDuration = 90; // seconds; the hidden browser can be slow
-
-const CABINS: Cabin[] = ["Economy", "Premium Economy", "Business", "First"];
-const code = (v: unknown) => (typeof v === "string" && /^[A-Za-z]{3}$/.test(v.trim()) ? v.trim().toUpperCase() : null);
+const CABINS: ApiCabin[] = ["Economy", "Premium", "Business", "First"];
+const SORTS: SortKey[] = ["miles", "tax", "duration", "-updated_at"];
+const codes = (v: unknown) =>
+  (typeof v === "string" ? v.split(/[\s,]+/) : [])
+    .map((c) => c.trim().toUpperCase())
+    .filter((c) => /^[A-Z]{3}$/.test(c))
+    .slice(0, 10);
 const date = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+const num = (v: unknown) => (v === "" || v === null || v === undefined || isNaN(Number(v)) ? undefined : Number(v));
 
 export async function POST(request: Request) {
   if (!(await requireOwner())) return Response.json({ error: "Not allowed" }, { status: 403 });
 
   const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const departure = code(b.departure);
-  const arrival = code(b.arrival);
-  const departDate = date(b.departDate);
-  const tripType = b.tripType === "2" ? "2" : "1";
-  const returnDate = tripType === "2" ? date(b.returnDate) : null;
-  const cabins = (Array.isArray(b.cabins) ? b.cabins : []).filter((c): c is Cabin => CABINS.includes(c as Cabin));
-  const adults = Math.min(9, Math.max(1, Number(b.adults) || 1));
+  const from = codes(b.from);
+  const to = codes(b.to);
+  const startDate = date(b.startDate);
+  const endDate = date(b.endDate);
+  const cabins = (Array.isArray(b.cabins) ? b.cabins : []).filter((c): c is ApiCabin => CABINS.includes(c as ApiCabin));
+  const sort = SORTS.includes(b.sort as SortKey) ? (b.sort as SortKey) : "miles";
 
-  if (!departure || !arrival || !departDate || (tripType === "2" && !returnDate) || cabins.length === 0) {
-    return Response.json({ error: "Please enter 3-letter airport codes, dates, and at least one cabin." }, { status: 400 });
+  if ((from.length === 0 && to.length === 0) || !startDate || !endDate || endDate < startDate) {
+    return Response.json({ error: "Enter at least one airport code (From or To) and a valid date range." }, { status: 400 });
   }
 
-  const params: LiveSearchParams = {
-    departure,
-    arrival,
-    departDate,
-    returnDate: returnDate ?? undefined,
-    tripType,
-    adults,
-    children: 0,
-    cabins,
-  };
-  const fallbackUrl = buildPointsYeahUrl(params);
-
   try {
-    const taskId = await createSearchTask(params);
-    return Response.json({ taskId, fallbackUrl });
+    const data = await searchExplorer({
+      from,
+      to,
+      startDate,
+      endDate,
+      cabins: cabins.length ? cabins : ["Economy"],
+      sort,
+      stops: num(b.stops),
+      maxPoints: num(b.maxPoints),
+      seats: Math.min(9, Math.max(1, num(b.seats) ?? 1)),
+      page: Math.max(1, num(b.page) ?? 1),
+      pageSize: 24,
+    });
+    return Response.json(data, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
-    const e = err instanceof PointsYeahError ? err : new PointsYeahError(err instanceof Error ? err.message : "Search failed", "upstream");
+    const e = err instanceof PointsYeahError ? err : new PointsYeahError("Search failed", "upstream");
     console.error("[live] search failed:", e.kind, e.message);
-    return Response.json({ error: e.message, kind: e.kind, fallbackUrl }, { status: 502 });
+    return Response.json({ error: e.message, kind: e.kind }, { status: e.kind === "setup" ? 500 : 502 });
   }
 }

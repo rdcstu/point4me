@@ -1,152 +1,103 @@
-// Server-only PointsYeah client for PERSONAL use with the owner's own membership.
-// Approach adapted from pulsemcp/mcp-servers "pointsyeah" (MIT License, © 2025 PulseMCP):
-//   1. Swap your PointsYeah refresh token for short-lived tokens (AWS Cognito).
-//   2. Open PointsYeah's own search page in a hidden Chrome signed in as you, and
-//      capture the search task it creates (their site encrypts the request).
-//   3. Poll PointsYeah for that task's results.
-// This depends on PointsYeah's website and may stop working if they change it.
-import { buildPointsYeahUrl, type LiveSearchParams } from "@/lib/pointsyeah-url";
+// Server-only client for the official PointsYeah API (premium membership).
+// Docs: https://www.pointsyeah.com/developers/getting-started
+// Uses your personal API key (POINTSYEAH_API_KEY) — keep it in .env.local only.
 
-const COGNITO_CLIENT_ID = "3im8jrentts1pguuouv5s57gfu";
-const COGNITO_ENDPOINT = "https://cognito-idp.us-east-1.amazonaws.com/";
-const API2_BASE = "https://api2.pointsyeah.com";
+const BASE = "https://ai-api.pointsyeah.com";
 
-export type FlightSegment = { duration: number; flight_number: string; dt: string; da: string; at: string; aa: string; cabin: string };
-export type TransferOption = { bank: string; actual_points: number; points: number };
-export type FlightPayment = { currency: string; tax: number; miles: number; cabin: string; unit: string; seats: number; cash_price: number };
-export type FlightRoute = { payment: FlightPayment | null; segments: FlightSegment[] | null; transfer: TransferOption[] | null };
-export type FlightResult = { program: string; code: string; date: string; departure: string; arrival: string; routes: FlightRoute[] | null };
+export type ApiCabin = "Economy" | "Premium" | "Business" | "First";
+export type SortKey = "miles" | "tax" | "duration" | "-updated_at";
 
-type Tokens = { accessToken: string; idToken: string; expiresAt: number };
-let cached: Tokens | null = null;
+export type ExplorerQuery = {
+  from: string[]; // IATA airport codes
+  to: string[];
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD (data covers ~61 days ahead)
+  cabins: ApiCabin[];
+  sort: SortKey;
+  stops?: number; // max stops
+  maxPoints?: number;
+  seats: number;
+  page: number;
+  pageSize: number;
+};
 
-function refreshToken() {
-  const t = process.env.POINTSYEAH_REFRESH_TOKEN?.trim();
-  if (!t) throw new PointsYeahError("POINTSYEAH_REFRESH_TOKEN is not set in .env.local", "setup");
-  return t;
-}
+export type ExplorerPlace = { code: string; city: string; country_name: string };
+export type ExplorerTransfer = { bank: string; bonus_percentage: number; url: string; code: string };
+export type ExplorerResult = {
+  program: string;
+  departure_date: string;
+  departure: ExplorerPlace;
+  arrival: ExplorerPlace;
+  miles: number;
+  tax: number;
+  cabin: string;
+  detail_url: string;
+  stops: number;
+  seats: number;
+  duration: number; // minutes
+  updated_at: number; // ms
+  transfer: ExplorerTransfer[] | null;
+};
 
 export class PointsYeahError extends Error {
-  constructor(message: string, public kind: "setup" | "auth" | "browser" | "upstream") {
+  constructor(message: string, public kind: "setup" | "auth" | "limit" | "upstream") {
     super(message);
   }
 }
 
-function jwtPayload(token: string): Record<string, unknown> {
-  return JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8"));
-}
+// Small in-memory cache so repeat searches don't use up the 1,000 calls/day
+const cache = new Map<string, { at: number; data: { total: number; results: ExplorerResult[] } }>();
+const TTL_MS = 10 * 60 * 1000;
 
-async function getTokens(force = false): Promise<Tokens> {
-  if (!force && cached && cached.expiresAt - Date.now() / 1000 > 300) return cached;
-  const res = await fetch(COGNITO_ENDPOINT, {
+export async function searchExplorer(q: ExplorerQuery) {
+  const key = process.env.POINTSYEAH_API_KEY?.trim();
+  if (!key) throw new PointsYeahError("POINTSYEAH_API_KEY is not set in .env.local", "setup");
+
+  const place = (airports: string[]) => ({ airports, countries: [], continents: [], regions: [], states: [] });
+  const body = {
+    departure: place(q.from),
+    arrival: place(q.to),
+    start_date: q.startDate,
+    end_date: q.endDate,
+    cabins: q.cabins,
+    sort: q.sort,
+    seats: q.seats,
+    weekend_only: false,
+    collection: false,
+    ...(q.stops !== undefined ? { stops: q.stops } : {}),
+    ...(q.maxPoints ? { max_points: q.maxPoints } : {}),
+    pagination: { page: q.page, page_size: q.pageSize },
+  };
+
+  const cacheKey = JSON.stringify(body);
+  const hit = cache.get(cacheKey);
+  if (hit && Date.now() - hit.at < TTL_MS) return { ...hit.data, cached: true };
+
+  const res = await fetch(`${BASE}/explorer/search`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-amz-json-1.1",
-      "X-Amz-Target": "AWSCognitoIdentityProviderService.InitiateAuth",
-    },
-    body: JSON.stringify({
-      AuthFlow: "REFRESH_TOKEN_AUTH",
-      ClientId: COGNITO_CLIENT_ID,
-      AuthParameters: { REFRESH_TOKEN: refreshToken() },
-    }),
+    headers: { "X-API-Key": key, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(30_000),
+    cache: "no-store",
   });
-  const body = await res.text();
-  if (!res.ok) {
-    throw new PointsYeahError(
-      body.includes("NotAuthorizedException")
-        ? "Your PointsYeah login token has expired. Log in to PointsYeah again and update POINTSYEAH_REFRESH_TOKEN."
-        : `PointsYeah sign-in failed (${res.status})`,
-      "auth"
-    );
-  }
-  const r = JSON.parse(body).AuthenticationResult as { AccessToken: string; IdToken: string; ExpiresIn: number };
-  const exp = (jwtPayload(r.AccessToken).exp as number) || Math.floor(Date.now() / 1000) + r.ExpiresIn;
-  cached = { accessToken: r.AccessToken, idToken: r.IdToken, expiresAt: exp };
-  return cached;
-}
 
-/** Starts a search on PointsYeah and returns its task id. Takes ~10–40s. */
-export async function createSearchTask(params: LiveSearchParams): Promise<string> {
-  const tokens = await getTokens();
-  const userId = jwtPayload(tokens.idToken).sub as string;
-  const prefix = `CognitoIdentityServiceProvider.${COGNITO_CLIENT_ID}.${userId}`;
-  const cookie = (name: string, value: string) => ({ name, value, domain: ".pointsyeah.com", path: "/" });
-  const cookies = [
-    cookie(`${prefix}.accessToken`, tokens.accessToken),
-    cookie(`${prefix}.idToken`, tokens.idToken),
-    cookie(`${prefix}.refreshToken`, refreshToken()),
-    cookie(`${prefix}.clockDrift`, "0"),
-    cookie(`${prefix}.signInDetails`, JSON.stringify({ loginId: "", authFlowType: "USER_SRP_AUTH" })),
-    cookie(`CognitoIdentityServiceProvider.${COGNITO_CLIENT_ID}.LastAuthUser`, userId),
-  ];
-
-  // Loaded at runtime so the rest of the site works even if Playwright isn't installed
-  // Minimal Playwright types, so the project still type-checks without it installed
-  type Resp = { url(): string; json(): Promise<unknown> };
-  type Page = {
-    waitForResponse(pred: (r: Resp) => boolean, o: { timeout: number }): Promise<Resp>;
-    goto(url: string, o: { waitUntil: string; timeout: number }): Promise<unknown>;
-  };
-  type Browser = {
-    newContext(): Promise<{ addCookies(c: typeof cookies): Promise<void>; newPage(): Promise<Page> }>;
-    close(): Promise<void>;
-  };
-  let chromium: { launch(o: { headless: boolean }): Promise<Browser> };
+  const text = await res.text();
+  let json: { total?: number; results?: ExplorerResult[]; message?: string } = {};
   try {
-    const pkg = "playwright"; // variable name keeps the bundler from trying to bundle it
-    ({ chromium } = await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ pkg));
+    json = JSON.parse(text);
   } catch {
-    throw new PointsYeahError("Playwright isn't installed. Run: npm install playwright && npx playwright install chromium", "setup");
+    /* non-JSON error */
   }
 
-  let browser: Browser;
-  try {
-    browser = await chromium.launch({ headless: true });
-  } catch (e) {
-    throw new PointsYeahError(
-      `Couldn't start the hidden browser. Run: npx playwright install chromium (${e instanceof Error ? e.message.split("\n")[0] : e})`,
-      "setup"
-    );
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403)
+      throw new PointsYeahError("PointsYeah rejected the API key. Check POINTSYEAH_API_KEY in .env.local.", "auth");
+    if (res.status === 429)
+      throw new PointsYeahError("You've hit PointsYeah's daily API limit (1,000 calls). Try again tomorrow.", "limit");
+    throw new PointsYeahError(json.message ?? `PointsYeah API error (${res.status})`, "upstream");
   }
-  try {
-    const context = await browser.newContext();
-    await context.addCookies(cookies);
-    const page = await context.newPage();
-    const created = page.waitForResponse((r) => r.url().includes("api2.pointsyeah.com/flight/search/create_task"), { timeout: 60_000 });
-    await page.goto(buildPointsYeahUrl(params), { waitUntil: "domcontentloaded", timeout: 60_000 });
-    let data: { success: boolean; code: number; data?: { task_id: string } };
-    try {
-      data = (await (await created).json()) as typeof data;
-    } catch {
-      throw new PointsYeahError("PointsYeah's page didn't start a search. Their site may have changed.", "browser");
-    }
-    if (!data.success || !data.data?.task_id) throw new PointsYeahError(`PointsYeah refused the search (code ${data.code})`, "upstream");
-    return data.data.task_id;
-  } finally {
-    await browser.close();
-  }
-}
 
-/** One poll of a running search. status is "processing" until "done". */
-export async function fetchResults(taskId: string): Promise<{ status: string; results: FlightResult[] }> {
-  const call = async (idToken: string) =>
-    fetch(`${API2_BASE}/flight/search/fetch_result`, {
-      method: "POST",
-      headers: {
-        Authorization: idToken, // raw token, no "Bearer"
-        "Content-Type": "application/json",
-        Origin: "https://www.pointsyeah.com",
-        Referer: "https://www.pointsyeah.com/",
-      },
-      body: JSON.stringify({ task_id: taskId }),
-      signal: AbortSignal.timeout(30_000),
-    });
-
-  let res = await call((await getTokens()).idToken);
-  if (res.status === 401) res = await call((await getTokens(true)).idToken);
-  if (!res.ok) throw new PointsYeahError(`PointsYeah results failed (${res.status})`, "upstream");
-  const json = (await res.json()) as { success: boolean; code: number; data: { status: string; result: FlightResult[] | null } | null };
-  if (!json.success) throw new PointsYeahError(`PointsYeah results failed (code ${json.code})`, "upstream");
-  return { status: json.data?.status ?? "processing", results: json.data?.result ?? [] };
+  const data = { total: json.total ?? 0, results: json.results ?? [] };
+  cache.set(cacheKey, { at: Date.now(), data });
+  return { ...data, cached: false };
 }

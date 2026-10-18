@@ -1,52 +1,72 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { buildPointsYeahUrl, type Cabin, type LiveSearchParams } from "@/lib/pointsyeah-url";
-import type { FlightResult, FlightRoute } from "@/lib/pointsyeah";
+import { useEffect, useState } from "react";
+import { buildPointsYeahUrl, type Cabin } from "@/lib/pointsyeah-url";
+import type { ApiCabin, ExplorerResult, SortKey } from "@/lib/pointsyeah";
 
-// Private search over the owner's PointsYeah membership.
-// "Show results here" runs the search through our server; "Open in PointsYeah"
-// always works as a fallback, using the PointsYeah tab you're logged into.
+// Private award search using the owner's official PointsYeah API key.
+// Results come from PointsYeah's explorer (about 61 days of upcoming availability).
 
-const CABINS: Cabin[] = ["Economy", "Premium Economy", "Business", "First"];
+const CABINS: { api: ApiCabin; label: string; link: Cabin }[] = [
+  { api: "Economy", label: "Economy", link: "Economy" },
+  { api: "Premium", label: "Premium", link: "Premium Economy" },
+  { api: "Business", label: "Business", link: "Business" },
+  { api: "First", label: "First", link: "First" },
+];
+const SORTS: { key: SortKey; label: string }[] = [
+  { key: "miles", label: "Fewest points" },
+  { key: "tax", label: "Lowest taxes" },
+  { key: "duration", label: "Shortest" },
+  { key: "-updated_at", label: "Newest" },
+];
 const fmt = new Intl.NumberFormat("en-US");
-const RECENT_KEY = "p4m-live-recent";
+const RECENT_KEY = "p4m-live-recent-v2";
 
-type Phase = "idle" | "starting" | "polling" | "done" | "error";
+type Form = {
+  from: string;
+  to: string;
+  startDate: string;
+  endDate: string;
+  cabins: ApiCabin[];
+  sort: SortKey;
+  stops: string; // "" = any
+  maxPoints: string;
+  seats: number;
+};
 
 function inDays(n: number) {
-  const d = new Date(Date.now() + n * 86_400_000);
-  return d.toISOString().slice(0, 10);
+  return new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 }
-
-function time(iso: string) {
-  return iso?.split("T")[1]?.slice(0, 5) ?? "";
-}
-
 function duration(min: number) {
-  return `${Math.floor(min / 60)}h ${min % 60}m`;
+  return min ? `${Math.floor(min / 60)}h ${min % 60}m` : "";
 }
-
-type Row = { result: FlightResult; route: FlightRoute };
+function ago(ms: number) {
+  const m = Math.round((Date.now() - ms) / 60000);
+  if (m < 60) return `${Math.max(1, m)} min ago`;
+  const h = Math.round(m / 60);
+  return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
+}
 
 export function LiveSearch({ inPage = true }: { inPage?: boolean }) {
-  const [form, setForm] = useState<LiveSearchParams>({
-    departure: "SFO",
-    arrival: "",
-    departDate: inDays(30),
-    returnDate: inDays(37),
-    tripType: "1",
-    adults: 1,
-    children: 0,
+  const [form, setForm] = useState<Form>({
+    from: "SFO",
+    to: "",
+    startDate: inDays(1),
+    endDate: inDays(60),
     cabins: ["Business"],
+    sort: "miles",
+    stops: "",
+    maxPoints: "",
+    seats: 1,
   });
-  const [phase, setPhase] = useState<Phase>("idle");
+  const [results, setResults] = useState<ExplorerResult[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [busy, setBusy] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [cached, setCached] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fallback, setFallback] = useState<string | null>(null);
-  const [results, setResults] = useState<Map<string, FlightResult>>(new Map());
-  const [elapsed, setElapsed] = useState(0);
-  const [recent, setRecent] = useState<LiveSearchParams[]>([]);
-  const cancelRef = useRef(false);
+  const [recent, setRecent] = useState<Form[]>([]);
 
   useEffect(() => {
     try {
@@ -57,29 +77,31 @@ export function LiveSearch({ inPage = true }: { inPage?: boolean }) {
     }
   }, []);
 
-  useEffect(() => {
-    if (phase !== "starting" && phase !== "polling") return;
-    const t0 = Date.now();
-    const id = setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 1000);
-    return () => clearInterval(id);
-  }, [phase]);
+  const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const toggleCabin = (c: ApiCabin) => set("cabins", form.cabins.includes(c) ? form.cabins.filter((x) => x !== c) : [...form.cabins, c]);
 
-  const set = <K extends keyof LiveSearchParams>(k: K, v: LiveSearchParams[K]) => setForm((f) => ({ ...f, [k]: v }));
-  const toggleCabin = (c: Cabin) =>
-    set("cabins", form.cabins.includes(c) ? form.cabins.filter((x) => x !== c) : [...form.cabins, c]);
+  const codes = (s: string) => s.split(/[\s,]+/).map((c) => c.trim().toUpperCase()).filter((c) => /^[A-Z]{3}$/.test(c));
+  const valid = (codes(form.from).length > 0 || codes(form.to).length > 0) && form.startDate && form.endDate >= form.startDate && form.cabins.length > 0;
 
-  const valid =
-    /^[A-Za-z]{3}$/.test(form.departure) &&
-    /^[A-Za-z]{3}$/.test(form.arrival) &&
-    Boolean(form.departDate) &&
-    (form.tripType === "1" || Boolean(form.returnDate)) &&
-    form.cabins.length > 0;
+  // PointsYeah link for the first from/to pair (one-way on the start date)
+  const f0 = codes(form.from)[0];
+  const t0 = codes(form.to)[0];
+  const pyUrl =
+    f0 && t0
+      ? buildPointsYeahUrl({
+          departure: f0,
+          arrival: t0,
+          departDate: form.startDate,
+          tripType: "1",
+          adults: form.seats,
+          children: 0,
+          cabins: CABINS.filter((c) => form.cabins.includes(c.api)).map((c) => c.link),
+        })
+      : null;
 
-  const pyUrl = valid ? buildPointsYeahUrl(form) : null;
-
-  function remember(p: LiveSearchParams) {
-    const key = (x: LiveSearchParams) => `${x.departure}-${x.arrival}-${x.tripType}-${x.cabins.join()}`;
-    const next = [p, ...recent.filter((r) => key(r) !== key(p))].slice(0, 6);
+  function remember(f: Form) {
+    const key = (x: Form) => `${x.from}|${x.to}|${x.cabins.join()}`;
+    const next = [f, ...recent.filter((r) => key(r) !== key(f))].slice(0, 6);
     setRecent(next);
     try {
       localStorage.setItem(RECENT_KEY, JSON.stringify(next));
@@ -88,107 +110,94 @@ export function LiveSearch({ inPage = true }: { inPage?: boolean }) {
     }
   }
 
-  async function run(e: React.FormEvent) {
-    e.preventDefault();
+  async function search(nextPage = 1) {
     if (!valid) return;
     if (!inPage) {
-      // No PointsYeah token set up: open the search on PointsYeah instead
       remember(form);
       if (pyUrl) window.open(pyUrl, "_blank", "noopener,noreferrer");
       return;
     }
-    cancelRef.current = false;
-    setPhase("starting");
+    setBusy(true);
     setError(null);
-    setFallback(pyUrl);
-    setResults(new Map());
-    setElapsed(0);
-    remember(form);
-
+    if (nextPage === 1) remember(form);
     try {
       const res = await fetch("/api/live/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, page: nextPage }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Search failed");
-      if (data.fallbackUrl) setFallback(data.fallbackUrl);
-      setPhase("polling");
-
-      const acc = new Map<string, FlightResult>();
-      for (let i = 0; i < 120 && !cancelRef.current; i++) {
-        await new Promise((r) => setTimeout(r, 3000));
-        const pr = await fetch(`/api/live/results?taskId=${encodeURIComponent(data.taskId)}`);
-        const pd = await pr.json();
-        if (!pr.ok) throw new Error(pd.error ?? "Couldn't get results");
-        for (const r of pd.results as FlightResult[]) acc.set(`${r.code}-${r.date}-${r.departure}-${r.arrival}`, r);
-        setResults(new Map(acc));
-        if (pd.status === "done") break;
-      }
-      setPhase(cancelRef.current ? "idle" : "done");
+      setResults((prev) => (nextPage === 1 ? data.results : [...prev, ...data.results]));
+      setTotal(data.total);
+      setPage(nextPage);
+      setCached(Boolean(data.cached));
+      setSearched(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed");
-      setPhase("error");
+    } finally {
+      setBusy(false);
     }
   }
 
-  // Flatten to one row per bookable option, cheapest points first
-  const rows: Row[] = [];
-  for (const result of results.values()) for (const route of result.routes ?? []) if (route.payment) rows.push({ result, route });
-  rows.sort((a, b) => (a.route.payment!.miles ?? 0) - (b.route.payment!.miles ?? 0));
-
-  const busy = phase === "starting" || phase === "polling";
-  const field = "w-full rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-ink-900 focus:border-sun-500 focus:outline-none focus:ring-4 focus:ring-sun-300/40";
+  const field =
+    "w-full rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-ink-900 focus:border-sun-500 focus:outline-none focus:ring-4 focus:ring-sun-300/40";
   const label = "block text-xs font-bold uppercase tracking-wider text-ink-500 mb-1";
 
   return (
     <div className="space-y-6">
       {/* ---------- Search form ---------- */}
-      <form onSubmit={run} className="rounded-3xl bg-white ring-1 ring-ink-900/5 p-5 md:p-6" aria-label="Search PointsYeah">
-        <div className="flex flex-wrap gap-2 mb-4">
-          {(["1", "2"] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              aria-pressed={form.tripType === t}
-              onClick={() => set("tripType", t)}
-              className={`rounded-full px-4 py-1.5 text-sm font-bold ${form.tripType === t ? "bg-ink-900 text-white" : "bg-ink-50 text-ink-700"}`}
-            >
-              {t === "1" ? "One way" : "Round trip"}
-            </button>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          search(1);
+        }}
+        className="rounded-3xl bg-white ring-1 ring-ink-900/5 p-5 md:p-6"
+        aria-label="Search PointsYeah"
+      >
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div>
             <label htmlFor="lv-from" className={label}>From</label>
-            <input id="lv-from" value={form.departure} maxLength={3} onChange={(e) => set("departure", e.target.value.toUpperCase())} placeholder="SFO" className={`${field} uppercase`} />
+            <input id="lv-from" value={form.from} onChange={(e) => set("from", e.target.value.toUpperCase())} placeholder="SFO, SJC" className={`${field} uppercase`} />
           </div>
           <div>
             <label htmlFor="lv-to" className={label}>To</label>
-            <input id="lv-to" value={form.arrival} maxLength={3} onChange={(e) => set("arrival", e.target.value.toUpperCase())} placeholder="NRT" className={`${field} uppercase`} />
+            <input id="lv-to" value={form.to} onChange={(e) => set("to", e.target.value.toUpperCase())} placeholder="NRT, HND" className={`${field} uppercase`} />
           </div>
           <div>
-            <label htmlFor="lv-dep" className={label}>Depart</label>
-            <input id="lv-dep" type="date" value={form.departDate} onChange={(e) => set("departDate", e.target.value)} className={field} />
+            <label htmlFor="lv-start" className={label}>Earliest date</label>
+            <input id="lv-start" type="date" value={form.startDate} onChange={(e) => set("startDate", e.target.value)} className={field} />
           </div>
           <div>
-            <label htmlFor="lv-ret" className={label}>Return</label>
-            <input
-              id="lv-ret"
-              type="date"
-              value={form.returnDate ?? ""}
-              disabled={form.tripType === "1"}
-              onChange={(e) => set("returnDate", e.target.value)}
-              className={`${field} disabled:bg-ink-50 disabled:text-ink-400`}
-            />
+            <label htmlFor="lv-end" className={label}>Latest date</label>
+            <input id="lv-end" type="date" value={form.endDate} onChange={(e) => set("endDate", e.target.value)} className={field} />
           </div>
           <div>
-            <label htmlFor="lv-adults" className={label}>Adults</label>
-            <select id="lv-adults" value={form.adults} onChange={(e) => set("adults", Number(e.target.value))} className={field}>
+            <label htmlFor="lv-stops" className={label}>Stops</label>
+            <select id="lv-stops" value={form.stops} onChange={(e) => set("stops", e.target.value)} className={field}>
+              <option value="">Any</option>
+              <option value="0">Nonstop</option>
+              <option value="1">Up to 1</option>
+              <option value="2">Up to 2</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor="lv-max" className={label}>Max points</label>
+            <input id="lv-max" inputMode="numeric" value={form.maxPoints} onChange={(e) => set("maxPoints", e.target.value.replace(/\D/g, ""))} placeholder="Any" className={field} />
+          </div>
+          <div>
+            <label htmlFor="lv-seats" className={label}>Seats</label>
+            <select id="lv-seats" value={form.seats} onChange={(e) => set("seats", Number(e.target.value))} className={field}>
               {[1, 2, 3, 4, 5, 6].map((n) => (
                 <option key={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="lv-sort" className={label}>Sort</label>
+            <select id="lv-sort" value={form.sort} onChange={(e) => set("sort", e.target.value as SortKey)} className={field}>
+              {SORTS.map((s) => (
+                <option key={s.key} value={s.key}>{s.label}</option>
               ))}
             </select>
           </div>
@@ -198,39 +207,34 @@ export function LiveSearch({ inPage = true }: { inPage?: boolean }) {
           <legend className={label}>Cabins</legend>
           <div className="flex flex-wrap gap-2">
             {CABINS.map((c) => (
-              <label key={c} className={`cursor-pointer rounded-full px-3 py-1.5 text-sm font-semibold ring-1 ${form.cabins.includes(c) ? "bg-sun-500 ring-sun-500 text-ink-900" : "bg-white ring-ink-200 text-ink-700"}`}>
-                <input type="checkbox" className="sr-only" checked={form.cabins.includes(c)} onChange={() => toggleCabin(c)} />
-                {c}
+              <label
+                key={c.api}
+                className={`cursor-pointer rounded-full px-3 py-1.5 text-sm font-semibold ring-1 ${
+                  form.cabins.includes(c.api) ? "bg-sun-500 ring-sun-500 text-ink-900" : "bg-white ring-ink-200 text-ink-700"
+                }`}
+              >
+                <input type="checkbox" className="sr-only" checked={form.cabins.includes(c.api)} onChange={() => toggleCabin(c.api)} />
+                {c.label}
               </label>
             ))}
           </div>
         </fieldset>
 
-        <div className="mt-5 flex flex-col sm:flex-row gap-3">
+        <div className="mt-5 flex flex-col sm:flex-row gap-3 sm:items-center">
           <button type="submit" disabled={!valid || busy} className="rounded-full bg-sun-500 hover:bg-sun-600 px-6 py-3 font-bold text-ink-900 transition-colors disabled:opacity-50">
-            {!inPage ? "Search on PointsYeah ↗" : busy ? "Searching…" : "Show results here"}
+            {!inPage ? "Search on PointsYeah ↗" : busy ? "Searching…" : "Search"}
           </button>
-          {inPage && (
-          <a
-            href={pyUrl ?? undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-disabled={!pyUrl}
-            className={`rounded-full px-6 py-3 text-center font-bold ring-2 ring-ink-900 text-ink-900 hover:bg-ink-50 transition-colors ${pyUrl ? "" : "pointer-events-none opacity-50"}`}
-          >
-            Open in PointsYeah ↗
-          </a>
+          {inPage && pyUrl && (
+            <a href={pyUrl} target="_blank" rel="noopener noreferrer" className="rounded-full px-6 py-3 text-center font-bold ring-2 ring-ink-900 text-ink-900 hover:bg-ink-50 transition-colors">
+              Open in PointsYeah ↗
+            </a>
           )}
-          {busy && (
-            <button type="button" onClick={() => (cancelRef.current = true)} className="text-sm font-semibold text-ink-500 hover:text-ink-900">
-              Stop
-            </button>
-          )}
+          <p className="text-xs text-ink-400">Separate several airports with commas. Leave From or To empty to search anywhere.</p>
         </div>
 
         {!inPage && (
           <p className="mt-3 text-sm text-ink-500">
-            Opens results in PointsYeah, where you&apos;re signed in. In-page results turn on once a PointsYeah token is added to <code>.env.local</code>.
+            In-page results turn on once your PointsYeah API key is added to <code>.env.local</code> as <code>POINTSYEAH_API_KEY</code>.
           </p>
         )}
 
@@ -242,10 +246,10 @@ export function LiveSearch({ inPage = true }: { inPage?: boolean }) {
                 <button
                   key={i}
                   type="button"
-                  onClick={() => setForm({ ...r, departDate: form.departDate, returnDate: form.returnDate })}
+                  onClick={() => setForm({ ...r, startDate: form.startDate, endDate: form.endDate })}
                   className="rounded-full bg-ink-50 hover:bg-ink-100 px-3 py-1 text-sm font-semibold text-ink-700"
                 >
-                  {r.departure} → {r.arrival} · {r.cabins.join("/")}
+                  {r.from || "Anywhere"} → {r.to || "Anywhere"} · {r.cabins.join("/")}
                 </button>
               ))}
             </div>
@@ -255,77 +259,75 @@ export function LiveSearch({ inPage = true }: { inPage?: boolean }) {
 
       {/* ---------- Status ---------- */}
       <div aria-live="polite">
-        {busy && (
-          <p className="rounded-2xl bg-white ring-1 ring-ink-900/5 px-5 py-4 text-ink-700">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse mr-2" aria-hidden="true" />
-            {phase === "starting" ? "Starting search on PointsYeah" : `Searching airline programs · ${rows.length} options so far`} · {elapsed}s
-          </p>
-        )}
-        {phase === "error" && (
+        {error && (
           <div className="rounded-2xl bg-rose-50 ring-1 ring-rose-200 px-5 py-4">
-            <p className="font-semibold text-rose-800 mb-2">Couldn&apos;t show results here: {error}</p>
-            {fallback && (
-              <a href={fallback} target="_blank" rel="noopener noreferrer" className="inline-block rounded-full bg-ink-900 px-5 py-2.5 font-bold text-white">
+            <p className="font-semibold text-rose-800 mb-2">{error}</p>
+            {pyUrl && (
+              <a href={pyUrl} target="_blank" rel="noopener noreferrer" className="inline-block rounded-full bg-ink-900 px-5 py-2.5 font-bold text-white">
                 Open this search in PointsYeah ↗
               </a>
             )}
           </div>
         )}
-        {phase === "done" && rows.length === 0 && (
-          <p className="rounded-2xl bg-white ring-1 ring-ink-900/5 px-5 py-4 text-ink-700">No award seats found for this search. Try other dates or cabins.</p>
+        {searched && !error && results.length === 0 && (
+          <p className="rounded-2xl bg-white ring-1 ring-ink-900/5 px-5 py-4 text-ink-700">No award seats found. Try more airports, a wider date range or other cabins.</p>
         )}
       </div>
 
       {/* ---------- Results ---------- */}
-      {rows.length > 0 && (
+      {results.length > 0 && (
         <section aria-label="Results" className="space-y-3">
-          <p className="text-sm text-ink-500">{rows.length} options · cheapest points first</p>
-          {rows.slice(0, 100).map(({ result, route }, i) => {
-            const p = route.payment!;
-            const segs = route.segments ?? [];
-            const first = segs[0];
-            const last = segs[segs.length - 1];
-            const transfers = (route.transfer ?? []).slice().sort((a, b) => a.points - b.points);
-            return (
-              <article key={i} className="rounded-2xl bg-white ring-1 ring-ink-900/5 p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-bold text-ink-900">{result.program}</p>
-                    <p className="text-sm text-ink-500">
-                      {result.date} · {result.departure} → {result.arrival}
-                      {first && last && ` · ${time(first.dt)}–${time(last.at)}`} · {segs.length <= 1 ? "Nonstop" : `${segs.length - 1} stop${segs.length > 2 ? "s" : ""}`}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xl font-extrabold text-ink-900">
-                      {fmt.format(p.miles)} <span className="text-sm font-semibold text-ink-500">{p.unit || "pts"}</span>
-                    </p>
-                    <p className="text-sm text-ink-500">
-                      + ${p.tax.toFixed(0)} · {p.cabin} · {p.seats} seat{p.seats === 1 ? "" : "s"}
-                    </p>
-                  </div>
-                </div>
-                {segs.length > 0 && (
-                  <p className="mt-3 text-sm text-ink-700">
-                    {segs.map((s) => `${s.flight_number} ${s.da}→${s.aa} (${duration(s.duration)})`).join("  ·  ")}
+          <p className="text-sm text-ink-500">
+            Showing {results.length} of {fmt.format(total)} options{cached ? " · from cache" : ""}
+          </p>
+          {results.map((r, i) => (
+            <article key={`${r.program}-${r.departure_date}-${r.departure.code}-${r.arrival.code}-${r.cabin}-${i}`} className="rounded-2xl bg-white ring-1 ring-ink-900/5 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-bold text-ink-900">
+                    {r.departure.city || r.departure.code} ({r.departure.code}) → {r.arrival.city || r.arrival.code} ({r.arrival.code})
                   </p>
-                )}
-                {transfers.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {transfers.map((t) => (
-                      <span key={t.bank} className="rounded-full bg-ink-50 px-2.5 py-1 text-xs font-semibold text-ink-700">
-                        {t.bank}: {fmt.format(t.points)}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </article>
-            );
-          })}
-          {fallback && (
-            <a href={fallback} target="_blank" rel="noopener noreferrer" className="inline-block text-sm font-bold text-sun-600 hover:text-ink-900">
-              See full results and book on PointsYeah ↗
-            </a>
+                  <p className="text-sm text-ink-500">
+                    {r.departure_date} · {r.program} · {r.stops === 0 ? "Nonstop" : `${r.stops} stop${r.stops > 1 ? "s" : ""}`}
+                    {r.duration ? ` · ${duration(r.duration)}` : ""}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xl font-extrabold text-ink-900">
+                    {fmt.format(r.miles)} <span className="text-sm font-semibold text-ink-500">pts</span>
+                  </p>
+                  <p className="text-sm text-ink-500">
+                    + ${Math.round(r.tax)} · {r.cabin} · {r.seats} seat{r.seats === 1 ? "" : "s"}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {(r.transfer ?? []).map((t) => (
+                  <span key={t.bank} className="rounded-full bg-ink-50 px-2.5 py-1 text-xs font-semibold text-ink-700">
+                    {t.bank}
+                    {t.bonus_percentage ? ` +${t.bonus_percentage}% bonus` : ""}
+                  </span>
+                ))}
+                <span className="ml-auto flex items-center gap-3 text-xs text-ink-400">
+                  {r.updated_at ? `Updated ${ago(r.updated_at)}` : ""}
+                  {r.detail_url && (
+                    <a href={r.detail_url} target="_blank" rel="noopener noreferrer" className="font-bold text-sun-600 hover:text-ink-900">
+                      View on PointsYeah ↗
+                    </a>
+                  )}
+                </span>
+              </div>
+            </article>
+          ))}
+          {results.length < total && (
+            <button
+              type="button"
+              onClick={() => search(page + 1)}
+              disabled={busy}
+              className="w-full rounded-full ring-2 ring-ink-900 px-6 py-3 font-bold text-ink-900 hover:bg-white disabled:opacity-50"
+            >
+              {busy ? "Loading…" : "Load more"}
+            </button>
           )}
         </section>
       )}

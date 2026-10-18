@@ -1,5 +1,5 @@
 // Builds a PointsYeah search link. Safe to use in the browser (no secrets).
-// Parameter format adapted from pulsemcp/mcp-servers (MIT License, © 2025 PulseMCP).
+// Opens the search on pointsyeah.com (fallback / "Open in PointsYeah" button).
 
 export type Cabin = "Economy" | "Premium Economy" | "Business" | "First";
 
