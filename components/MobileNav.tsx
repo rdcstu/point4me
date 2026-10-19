@@ -9,6 +9,7 @@ const links = [
   { href: "#how", label: "How it works" },
   { href: "#pricing", label: "Pricing" },
   { href: "#faq", label: "FAQ" },
+  { href: "/insider", label: "Insider" },
 ];
 
 export function MobileNav() {

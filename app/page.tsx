@@ -13,6 +13,9 @@ import { Newsletter } from "@/components/Newsletter";
 import { CheckIcon, ArrowRightIcon, PlaneIcon, SparklesIcon, BoltIcon, TrendingUpIcon, BookOpenIcon } from "@/components/Icons";
 import { site, features, steps, examples, faqs, conciergeFromPrice } from "@/lib/site";
 import { PricingSection } from "@/components/PricingSection";
+import { ArticleCard } from "@/components/insider/ArticleCard";
+import { sortedArticles } from "@/lib/articles";
+import Link from "next/link";
 
 const fmt = new Intl.NumberFormat("en-US");
 const featureIcons = [PlaneIcon, SparklesIcon, BookOpenIcon, TrendingUpIcon];
@@ -62,6 +65,7 @@ export default function Home() {
             <a href="#how" className="whitespace-nowrap text-sm font-semibold text-white/80 hover:text-white transition-colors">How it works</a>
             <a href="#pricing" className="whitespace-nowrap text-sm font-semibold text-white/80 hover:text-white transition-colors">Pricing</a>
             <a href="#faq" className="whitespace-nowrap text-sm font-semibold text-white/80 hover:text-white transition-colors">FAQ</a>
+            <Link href="/insider" className="whitespace-nowrap text-sm font-semibold text-white/80 hover:text-white transition-colors">Insider</Link>
           </div>
           <div className="hidden lg:flex items-center gap-3">
             <LiveDataButton />
@@ -116,6 +120,30 @@ export default function Home() {
               <a href="#top" className="inline-flex items-center gap-2 font-bold text-ink-900 hover:text-sun-600 transition-colors">
                 Search more deals <ArrowRightIcon className="w-4 h-4" />
               </a>
+            </div>
+          </div>
+        </section>
+
+        {/* ============================================================ */}
+        {/* INSIDER ARTICLES — content lives in lib/articles.ts          */}
+        {/* ============================================================ */}
+        <section id="insider" className="pb-20 bg-white scroll-mt-16" aria-labelledby="insider-heading">
+          <div className="container mx-auto px-4 md:px-6 max-w-6xl">
+            <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-widest text-sun-600 mb-2">Point4Me Insider</p>
+                <h2 id="insider-heading" className="text-3xl md:text-4xl font-bold font-display text-ink-900">Read the latest Insider articles</h2>
+              </div>
+              <Link href="/insider" className="inline-flex items-center gap-2 font-bold text-ink-900 hover:text-sun-600 transition-colors">
+                Read all <ArrowRightIcon className="w-4 h-4" />
+              </Link>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {sortedArticles()
+                .slice(0, 3)
+                .map((a) => (
+                  <ArticleCard key={a.slug} article={a} />
+                ))}
             </div>
           </div>
         </section>
@@ -294,6 +322,7 @@ export default function Home() {
               <h3 className="font-bold mb-4">Resources</h3>
               <ul className="space-y-2 text-white/60">
                 <li><a href="#how" className="hover:text-white">How it works</a></li>
+                <li><Link href="/insider" className="hover:text-white">Insider articles</Link></li>
                 <li><a href="#faq" className="hover:text-white">FAQ</a></li>
               </ul>
             </div>
