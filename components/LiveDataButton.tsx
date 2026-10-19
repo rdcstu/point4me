@@ -1,7 +1,22 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
-// "Live Data" button for the top nav, with a pulsing dot to signal real-time content.
+// "Live Data" button for the top nav. Only shown to the site owner
+// (OWNER_EMAILS), since the page uses the owner's personal PointsYeah membership.
 export function LiveDataButton({ compact = false }: { compact?: boolean }) {
+  const [owner, setOwner] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/live/access")
+      .then((r) => (r.ok ? r.json() : { owner: false }))
+      .then((d) => setOwner(Boolean(d.owner)))
+      .catch(() => setOwner(false));
+  }, []);
+
+  if (!owner) return null;
+
   return (
     <Link
       href="/live"
