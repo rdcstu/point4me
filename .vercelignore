@@ -1,0 +1,7 @@
+# Never upload local secrets or build output; Vercel uses its own env vars
+.env
+.env.local
+.env.*.local
+node_modules
+.next
+.DS_Store
